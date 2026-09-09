@@ -11,9 +11,6 @@ try:
 except ImportError:
     pass
 
-# ------------------------------------------------------------------
-# CSS - Design Ultradenso
-# ------------------------------------------------------------------
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; color: #FFFFFF; }
@@ -46,7 +43,6 @@ st.markdown("""
 
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
-# Dicionários de Ativos
 MOEDAS = {
     '6E=F': '6E1!',
     '6J=F': '6J1!',
@@ -89,22 +85,12 @@ ALTURA_GRAFICO = 240
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
-# CARREGAMENTO E ALINHAMENTO TEMPORAL
+# CARREGAMENTO DE DADOS (5 DIAS ÚTEIS)
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
-    df = yf.download(tickers, period="5d", interval="1h")['Close']
-    
-    # 1. Normaliza fuso horário
-    if df.index.tz is not None:
-        df.index = df.index.tz_convert('UTC')
-        
-    # 2. Força um grid de tempo unificado de 1 hora para todos os ativos
-    df = df.resample('1h').last()
-    
-    # 3. Preenche buracos de horário (DXY / feriados)
-    df = df.ffill().bfill()
-    
+    # Puxa 7d para garantir 5 dias úteis operacionais
+    df = yf.download(tickers, period="7d", interval="1h")['Close']
     return df
 
 todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys())
@@ -145,37 +131,35 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
     return html
 
 # ------------------------------------------------------------------
-# FUNÇÃO DO GRÁFICO CORRIGIDA
+# CONSTRUÇÃO DO GRÁFICO (EIXO DADO COM REMOÇÃO DE GAPS)
 # ------------------------------------------------------------------
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
-    
-    # Filtra colunas dos ativos do gráfico atual
-    df_filtrado = dados_linha[list(tickers_nomes.keys())].dropna(how='all')
-    
-    # Cria o eixo X comum em texto (sem gaps do fim de semana)
-    datas_str = df_filtrado.index.strftime('%d/%m %H:%M')
 
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
-        if ticker not in df_filtrado.columns:
+        if ticker not in dados_linha.columns:
             continue
             
-        s = df_filtrado[ticker]
-        if s.empty or s.iloc[0] == 0:
+        s = dados_linha[ticker].dropna()
+        if s.empty:
             continue
+            
+        # Limpeza individual do ativo (ordenação temporal pura + remoção de duplicatas)
+        s = s.sort_index()
+        s = s.loc[~s.index.duplicated(keep='first')]
 
         cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
 
-        # Calcula o retorno percentual na mesma base
+        # Retorno % acumulado no período de 5 dias úteis
         ret = ((s / s.iloc[0]) - 1) * 100
 
         fig.add_trace(go.Scatter(
-            x=datas_str, 
+            x=ret.index, 
             y=ret.values, 
             mode='lines', 
             name=nome,
             line=dict(color=cor, width=1.8),
-            connectgaps=True
+            connectgaps=False # Impede linhas retas cobrindo períodos sem dados
         ))
 
         var_pct = var_dict.get(ticker, {}).get('var_pct')
@@ -194,7 +178,13 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         height=ALTURA_GRAFICO, 
         margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
-        xaxis=dict(type='category', showticklabels=False),
+        xaxis=dict(
+            type='date',
+            rangebreaks=[
+                dict(bounds=["sat", "mon"]), # Remove sábados e domingos
+                dict(bounds=[17, 18], pattern="hour") # Oculta o fechamento diário entre sessões da CME/ICE
+            ]
+        ),
         showlegend=mostrar_legenda
     )
 
@@ -212,7 +202,6 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
 # ----------------------------------------------------
 col_esquerda, col_direita = st.columns(2, gap="medium")
 
-# PAINEL 1: MOEDAS & DXY
 with col_esquerda:
     st.markdown("###### Moedas & DXY (% Variação)")
     c_g1, c_t1 = st.columns([3, 1], gap="small")
@@ -225,7 +214,6 @@ with col_esquerda:
         st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
         st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
 
-# PAINEL 2: YIELDS
 with col_direita:
     st.markdown("###### US Treasury Yields (% Variação)")
     c_g2, c_t2 = st.columns([3, 1], gap="small")
