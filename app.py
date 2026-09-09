@@ -13,33 +13,34 @@ except ImportError:
     pass
 
 # ------------------------------------------------------------------
-# CSS - Compacto e sem espaços sobressalentes
+# CSS - Design Ultradenso para Terminal
 # ------------------------------------------------------------------
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; color: #FFFFFF; }
-        .block-container { padding-top: 0.8rem; padding-bottom: 0.8rem; padding-left: 1.5rem; padding-right: 1.5rem; }
-        h1 { font-size: 1.1rem !important; margin-bottom: 0.2rem !important; }
-        h2, h3 { font-size: 0.85rem !important; margin-bottom: 0.1rem !important; }
-        hr { margin: 0.25rem 0 !important; border-color: #222 !important; }
+        .block-container { padding-top: 0.5rem; padding-bottom: 0.5rem; padding-left: 1rem; padding-right: 1rem; }
+        h1 { font-size: 1.1rem !important; margin-bottom: 0.1rem !important; }
+        h2, h3, h6 { font-size: 0.82rem !important; margin-bottom: 0.1rem !important; margin-top: 0.1rem !important; }
+        hr { margin: 0.2rem 0 !important; border-color: #222 !important; }
         div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
 
-        /* Tabela lateral enxuta estilo Terminal */
+        /* Tabela lateral ultracompacta com texto colado */
         .side-table {
-            width: 100%;
+            width: auto;
             border-collapse: collapse;
-            font-size: 0.82rem;
-            margin-top: 2px;
+            font-size: 0.8rem;
+            margin: 0 auto;
         }
         .side-table tr {
             border-bottom: 1px solid #1e2330;
         }
         .side-table td {
-            padding: 4px 2px;
+            padding: 3px 6px;
             font-weight: 600;
+            white-space: nowrap;
         }
-        .symbol-col { text-align: left; color: #e0e0e0; width: 50%; }
-        .var-col { text-align: right; width: 50%; }
+        .symbol-col { text-align: left; color: #e0e0e0; }
+        .var-col { text-align: left; padding-left: 12px !important; }
         .positive { color: #26a69a; }
         .negative { color: #ef5350; }
     </style>
@@ -86,15 +87,15 @@ ADRS = {
 
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
 
-ALTURA_GRAFICO = 220
-MARGEM_GRAFICO = dict(l=5, r=65, t=15, b=5)
+ALTURA_GRAFICO = 240
+MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
 # DADOS EM LOTE
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
-    df = yf.download(tickers, period="7d", interval="1h")['Close']
+    df = yf.download(tickers, period="5d", interval="1h")['Close']
     return df
 
 todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys())
@@ -122,7 +123,7 @@ def obter_dados_diarios_lote(tickers):
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
 
-# Tabela Lateral mostrando apenas Ticker e Variação %
+# Tabela Compacta (Variação colada no nome)
 def renderizar_tabela_lateral(tickers_map, dados_dict):
     html = '<table class="side-table">'
     for ticker, nome in tickers_map.items():
@@ -135,7 +136,7 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
     html += '</table>'
     return html
 
-# Gráfico Customizado
+# Gráfico Customizado Sem Linhas Retas do Fim de Semana
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
@@ -148,9 +149,13 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
 
         ret = ((s / s.iloc[0]) - 1) * 100
+        
+        # Formata datas como texto para o eixo tipo 'category' ignorar gaps
+        datas_str = ret.index.strftime('%d/%m %H:%M')
+
         fig.add_trace(go.Scatter(
-            x=ret.index, y=ret, mode='lines', name=nome,
-            line=dict(color=cor, width=2),
+            x=datas_str, y=ret.values, mode='lines', name=nome,
+            line=dict(color=cor, width=1.8),
         ))
 
         var_pct = var_dict.get(ticker, {}).get('var_pct')
@@ -169,52 +174,49 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         height=ALTURA_GRAFICO, 
         margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
+        xaxis=dict(type='category', showticklabels=False), # Oculta rótulos poluídos no eixo X
         showlegend=mostrar_legenda
     )
 
     if mostrar_legenda:
         layout_args['legend'] = dict(
             yanchor="top", y=0.99, xanchor="left", x=0.01,
-            bgcolor="rgba(0,0,0,0.4)", font=dict(size=9)
+            bgcolor="rgba(0,0,0,0.4)", font=dict(size=8)
         )
 
     fig.update_layout(**layout_args)
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
     return fig
 
 # ----------------------------------------------------
-# SEÇÃO 1: MOEDAS & DXY
+# SEÇÃO PRINCIPAL: GRÁFICOS LADO A LADO
 # ----------------------------------------------------
-col_m1, col_m2 = st.columns([4, 1], gap="small")
+col_esquerda, col_direita = st.columns(2, gap="medium")
 
-with col_m1:
-    st.markdown("###### Moedas & DXY (% Variação - 1h / Histórico)")
-    st.plotly_chart(
-        grafico_com_variacao(MOEDAS, CORES_MOEDAS_EXATAS, dados_var, mostrar_legenda=True), 
-        use_container_width=True
-    )
+# PAINEL 1: MOEDAS & DXY
+with col_esquerda:
+    st.markdown("###### Moedas & DXY (% Variação)")
+    c_g1, c_t1 = st.columns([3, 1], gap="small")
+    with c_g1:
+        st.plotly_chart(
+            grafico_com_variacao(MOEDAS, CORES_MOEDAS_EXATAS, dados_var, mostrar_legenda=True), 
+            use_container_width=True
+        )
+    with c_t1:
+        st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
 
-with col_m2:
-    st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
-    st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
-
-st.markdown("<hr>", unsafe_allow_html=True)
-
-# ----------------------------------------------------
-# SEÇÃO 2: US TREASURY YIELDS
-# ----------------------------------------------------
-col_y1, col_y2 = st.columns([4, 1], gap="small")
-
-with col_y1:
-    st.markdown("###### US Treasury Yields - 2Y, 5Y, 10Y, 30Y (% Variação - 1h / Histórico)")
-    st.plotly_chart(
-        grafico_com_variacao(YIELDS, CORES_YIELDS, dados_var, mostrar_legenda=False), 
-        use_container_width=True
-    )
-
-with col_y2:
-    st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
-    st.markdown(renderizar_tabela_lateral(YIELDS, dados_var), unsafe_allow_html=True)
+# PAINEL 2: YIELDS
+with col_direita:
+    st.markdown("###### US Treasury Yields (% Variação)")
+    c_g2, c_t2 = st.columns([3, 1], gap="small")
+    with c_g2:
+        st.plotly_chart(
+            grafico_com_variacao(YIELDS, CORES_YIELDS, dados_var, mostrar_legenda=False), 
+            use_container_width=True
+        )
+    with c_t2:
+        st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(YIELDS, dados_var), unsafe_allow_html=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -241,21 +243,19 @@ fig_adrs_bar = go.Figure(data=[
         marker_color=cores,
         text=[f"{v:+.2f}%" for v in variacoes_adr],
         textposition='outside',
-        textfont=dict(color='white', size=10)
+        textfont=dict(color='white', size=9)
     )
 ])
 
 fig_adrs_bar.update_layout(
     template="plotly_dark",
-    height=190,
+    height=160,
     yaxis=dict(title=None, zeroline=True, zerolinecolor='white', zerolinewidth=1.5),
     xaxis=dict(title=None),
     margin=dict(l=5, r=5, t=15, b=5)
 )
 
-col_bar, col_vazia = st.columns([4, 1])
-with col_bar:
-    st.plotly_chart(fig_adrs_bar, use_container_width=True)
+st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
 adrs_lista = list(ADRS.items())
 linha1 = adrs_lista[:5]
