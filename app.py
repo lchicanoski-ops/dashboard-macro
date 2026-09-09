@@ -28,14 +28,14 @@ st.markdown("""
         .side-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.78rem;
+            font-size: 0.8rem;
             margin-top: 5px;
         }
         .side-table tr {
             border-bottom: 1px solid #1e2330;
         }
         .side-table td {
-            padding: 5px 0px;
+            padding: 6px 0px;
             font-weight: 600;
         }
         .symbol-col { text-align: left; color: #e0e0e0; width: 35%; }
@@ -123,7 +123,7 @@ def obter_dados_diarios_lote(tickers):
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
 
-# Função para Renderizar Lista Compacta Lateral (HTML)
+# Função sem quebras de linha para evitar formatação Markdown acidental
 def renderizar_tabela_lateral(tickers_map, dados_dict, formato_preco="{:.4f}"):
     html = '<table class="side-table">'
     for ticker, nome in tickers_map.items():
@@ -133,14 +133,7 @@ def renderizar_tabela_lateral(tickers_map, dados_dict, formato_preco="{:.4f}"):
             cor_classe = "positive" if var >= 0 else "negative"
             preco_fmt = formato_preco.format(info['preco'])
             var_fmt = f"{var:+.2f}%"
-            
-            html += f"""
-            <tr>
-                <td class="symbol-col">{nome}:</td>
-                <td class="price-col">{preco_fmt}</td>
-                <td class="var-col {cor_classe}">{var_fmt}</td>
-            </tr>
-            """
+            html += f'<tr><td class="symbol-col">{nome}:</td><td class="price-col">{preco_fmt}</td><td class="var-col {cor_classe}">{var_fmt}</td></tr>'
     html += '</table>'
     return html
 
