@@ -299,7 +299,7 @@ with col_macro:
             var = dados_var[ticker]['var_pct']
             tickers_comm_x.append(nome)
             variacoes_comm.append(var)
-            cores_comm.append('#26a69a' if var >= 0 else '#ef5350')
+            cores_comm.append('#1b8a2e' if var >= 0 else '#ff3b30')
 
     fig_comm_bar = go.Figure(data=[
         go.Bar(
