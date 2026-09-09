@@ -5,16 +5,12 @@ import pandas as pd
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
-# Configuração de atualização automática a cada 60 segundos
 try:
     from streamlit_autorefresh import st_autorefresh
     st_autorefresh(interval=60000, key="datarefresh")
 except ImportError:
     pass
 
-# ------------------------------------------------------------------
-# CSS - Design Ultradenso para Terminal
-# ------------------------------------------------------------------
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; color: #FFFFFF; }
@@ -24,7 +20,6 @@ st.markdown("""
         hr { margin: 0.2rem 0 !important; border-color: #222 !important; }
         div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
 
-        /* Tabela lateral ultracompacta com texto colado */
         .side-table {
             width: auto;
             border-collapse: collapse;
@@ -48,7 +43,6 @@ st.markdown("""
 
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
-# Dicionários de Ativos
 MOEDAS = {
     '6E=F': '6E1!',
     '6J=F': '6J1!',
@@ -90,9 +84,6 @@ CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
 ALTURA_GRAFICO = 240
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
-# ------------------------------------------------------------------
-# DADOS EM LOTE
-# ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
     df = yf.download(tickers, period="5d", interval="1h")['Close']
@@ -123,7 +114,6 @@ def obter_dados_diarios_lote(tickers):
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
 
-# Tabela Compacta (Variação colada no nome)
 def renderizar_tabela_lateral(tickers_map, dados_dict):
     html = '<table class="side-table">'
     for ticker, nome in tickers_map.items():
@@ -136,26 +126,27 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
     html += '</table>'
     return html
 
-# Gráfico Customizado Sem Linhas Retas do Fim de Semana
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
         if ticker not in dados_linha.columns:
             continue
+        
+        # Limpeza severa de série temporal: remove NaNs, duplicatas de horário e ordena estritamente
         s = dados_linha[ticker].dropna()
+        s = s.loc[~s.index.duplicated(keep='first')].sort_index()
+        
         if s.empty:
             continue
         
         cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
 
         ret = ((s / s.iloc[0]) - 1) * 100
-        
-        # Formata datas como texto para o eixo tipo 'category' ignorar gaps
-        datas_str = ret.index.strftime('%d/%m %H:%M')
 
         fig.add_trace(go.Scatter(
-            x=datas_str, y=ret.values, mode='lines', name=nome,
+            x=ret.index, y=ret.values, mode='lines', name=nome,
             line=dict(color=cor, width=1.8),
+            connectgaps=True
         ))
 
         var_pct = var_dict.get(ticker, {}).get('var_pct')
@@ -174,7 +165,10 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         height=ALTURA_GRAFICO, 
         margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
-        xaxis=dict(type='category', showticklabels=False), # Oculta rótulos poluídos no eixo X
+        xaxis=dict(
+            type='date',
+            rangebreaks=[dict(bounds=["sat", "mon"])] # Oculta fins de semana sem desordenar datas
+        ),
         showlegend=mostrar_legenda
     )
 
@@ -188,11 +182,10 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
     return fig
 
 # ----------------------------------------------------
-# SEÇÃO PRINCIPAL: GRÁFICOS LADO A LADO
+# PAINÉIS LADO A LADO
 # ----------------------------------------------------
 col_esquerda, col_direita = st.columns(2, gap="medium")
 
-# PAINEL 1: MOEDAS & DXY
 with col_esquerda:
     st.markdown("###### Moedas & DXY (% Variação)")
     c_g1, c_t1 = st.columns([3, 1], gap="small")
@@ -205,7 +198,6 @@ with col_esquerda:
         st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
         st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
 
-# PAINEL 2: YIELDS
 with col_direita:
     st.markdown("###### US Treasury Yields (% Variação)")
     c_g2, c_t2 = st.columns([3, 1], gap="small")
