@@ -13,7 +13,7 @@ except ImportError:
     pass
 
 # ------------------------------------------------------------------
-# CSS - versão compacta
+# CSS - Estilização compacta personalizada
 # ------------------------------------------------------------------
 st.markdown("""
     <style>
@@ -21,23 +21,34 @@ st.markdown("""
         .block-container { padding-top: 1rem; padding-bottom: 1rem; }
         h1 { font-size: 1.25rem !important; margin-bottom: 0.3rem !important; }
         h2, h3 { font-size: 0.95rem !important; margin-bottom: 0.2rem !important; margin-top: 0.2rem !important; }
-        [data-testid="stMetric"] {
-            background-color: #161a25;
-            border-radius: 6px;
-            padding: 6px 8px;
-            margin-bottom: 4px;
-        }
-        [data-testid="stMetricValue"] { font-size: 0.82rem !important; }
-        [data-testid="stMetricLabel"] { font-size: 0.65rem !important; }
-        [data-testid="stMetricDelta"] { font-size: 0.65rem !important; }
         hr { margin: 0.35rem 0 !important; border-color: #222 !important; }
-        div[data-testid="stVerticalBlock"] > div { gap: 0.35rem; }
+        div[data-testid="stVerticalBlock"] > div { gap: 0.2rem; }
+
+        /* Tabela lateral estilo Terminal */
+        .side-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+            margin-top: 5px;
+        }
+        .side-table tr {
+            border-bottom: 1px solid #1e2330;
+        }
+        .side-table td {
+            padding: 5px 0px;
+            font-weight: 600;
+        }
+        .symbol-col { text-align: left; color: #e0e0e0; width: 35%; }
+        .price-col { text-align: center; color: #ffffff; width: 35%; }
+        .var-col { text-align: right; width: 30%; }
+        .positive { color: #26a69a; }
+        .negative { color: #ef5350; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
-# Dicionário de Moedas na ordem exata da imagem: 6E, 6J, 6L, 6M, DXY
+# Dicionários de Ativos
 MOEDAS = {
     '6E=F': '6E1!',
     '6J=F': '6J1!',
@@ -46,13 +57,12 @@ MOEDAS = {
     'DX-Y.NYB': 'DXY'
 }
 
-# Cores idênticas às da imagem
 CORES_MOEDAS_EXATAS = {
-    '6E=F': '#1e50bc',      # Azul (Euro)
-    '6J=F': '#d4c92a',      # Amarelo (Iene)
-    '6L=F': '#1b8a2e',      # Verde (Real)
-    '6M=F': '#c87820',      # Laranja/Marrom (Peso MXN)
-    'DX-Y.NYB': '#dcdcdc'   # Branco/Cinza Claro (DXY)
+    '6E=F': '#1e50bc',
+    '6J=F': '#d4c92a',
+    '6L=F': '#1b8a2e',
+    '6M=F': '#c87820',
+    'DX-Y.NYB': '#dcdcdc'
 }
 
 YIELDS = {
@@ -113,7 +123,28 @@ def obter_dados_diarios_lote(tickers):
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
 
-# Função de Gráfico customizada para suportar mapa de cores fixo
+# Função para Renderizar Lista Compacta Lateral (HTML)
+def renderizar_tabela_lateral(tickers_map, dados_dict, formato_preco="{:.4f}"):
+    html = '<table class="side-table">'
+    for ticker, nome in tickers_map.items():
+        if ticker in dados_dict:
+            info = dados_dict[ticker]
+            var = info['var_pct']
+            cor_classe = "positive" if var >= 0 else "negative"
+            preco_fmt = formato_preco.format(info['preco'])
+            var_fmt = f"{var:+.2f}%"
+            
+            html += f"""
+            <tr>
+                <td class="symbol-col">{nome}:</td>
+                <td class="price-col">{preco_fmt}</td>
+                <td class="var-col {cor_classe}">{var_fmt}</td>
+            </tr>
+            """
+    html += '</table>'
+    return html
+
+# Gráfico Customizado
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
@@ -123,11 +154,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         if s.empty:
             continue
         
-        # Pega a cor exata do dicionário se for um dict, ou da lista pelo índice
-        if isinstance(cores, dict):
-            cor = cores.get(ticker, '#FFFFFF')
-        else:
-            cor = cores[i % len(cores)]
+        cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
 
         ret = ((s / s.iloc[0]) - 1) * 100
         fig.add_trace(go.Scatter(
@@ -156,26 +183,16 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
 
     if mostrar_legenda:
         layout_args['legend'] = dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01,
-            bgcolor="rgba(0,0,0,0.4)",
-            font=dict(size=9)
+            yanchor="top", y=0.99, xanchor="left", x=0.01,
+            bgcolor="rgba(0,0,0,0.4)", font=dict(size=9)
         )
 
     fig.update_layout(**layout_args)
-    
-    # Remove fins de semana do eixo do gráfico
-    fig.update_xaxes(
-        rangebreaks=[
-            dict(bounds=["sat", "mon"])
-        ]
-    )
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
     return fig
 
 # ----------------------------------------------------
-# SEÇÃO 1: MOEDAS & DXY (LINHA)
+# SEÇÃO 1: MOEDAS & DXY
 # ----------------------------------------------------
 col_m1, col_m2 = st.columns([2.8, 1], gap="small")
 
@@ -187,21 +204,13 @@ with col_m1:
     )
 
 with col_m2:
-    st.markdown("###### Var. % Moedas / DXY")
-    itens = list(MOEDAS.items())
-    for i in range(0, len(itens), 2):
-        par = itens[i:i + 2]
-        cols_par = st.columns(2, gap="small")
-        for j, (ticker, nome) in enumerate(par):
-            if ticker in dados_var:
-                info = dados_var[ticker]
-                with cols_par[j]:
-                    st.metric(nome, f"{info['preco']:.4f}", f"{info['var_pct']:+.2f}%")
+    st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
+    st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var, formato_preco="{:.4f}"), unsafe_allow_html=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# SEÇÃO 2: US TREASURY YIELDS (LINHA)
+# SEÇÃO 2: US TREASURY YIELDS
 # ----------------------------------------------------
 col_y1, col_y2 = st.columns([2.8, 1], gap="small")
 
@@ -213,21 +222,13 @@ with col_y1:
     )
 
 with col_y2:
-    st.markdown("###### Var. % Diária Yields")
-    itens = list(YIELDS.items())
-    for i in range(0, len(itens), 2):
-        par = itens[i:i + 2]
-        cols_par = st.columns(2, gap="small")
-        for j, (ticker, nome) in enumerate(par):
-            if ticker in dados_var:
-                info = dados_var[ticker]
-                with cols_par[j]:
-                    st.metric(nome, f"{info['preco']:.3f}%", f"{info['var_pct']:+.2f}%")
+    st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
+    st.markdown(renderizar_tabela_lateral(YIELDS, dados_var, formato_preco="{:.3f}%"), unsafe_allow_html=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# SEÇÃO 3: ADRs BRASILEIRAS (GRÁFICO PRIMEIRO, MÉTRICAS DEPOIS)
+# SEÇÃO 3: ADRs BRASILEIRAS
 # ----------------------------------------------------
 st.markdown("###### ADRs Brasileiras (Variação Diária)")
 
@@ -255,13 +256,13 @@ fig_adrs_bar = go.Figure(data=[
 
 fig_adrs_bar.update_layout(
     template="plotly_dark",
-    height=220,
+    height=200,
     yaxis=dict(title=None, zeroline=True, zerolinecolor='white', zerolinewidth=1.5),
     xaxis=dict(title=None),
     margin=dict(l=10, r=10, t=15, b=10)
 )
 
-col_bar, col_vazia = st.columns([2.2, 1])
+col_bar, col_vazia = st.columns([2.8, 1])
 with col_bar:
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
