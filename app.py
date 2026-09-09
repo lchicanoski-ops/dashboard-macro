@@ -19,9 +19,9 @@ st.markdown("""
             padding: 6px 8px;
             margin-bottom: 4px;
         }
-        [data-testid="stMetricValue"] { font-size: 0.95rem !important; }
-        [data-testid="stMetricLabel"] { font-size: 0.72rem !important; }
-        [data-testid="stMetricDelta"] { font-size: 0.72rem !important; }
+        [data-testid="stMetricValue"] { font-size: 0.82rem !important; }
+        [data-testid="stMetricLabel"] { font-size: 0.65rem !important; }
+        [data-testid="stMetricDelta"] { font-size: 0.65rem !important; }
         hr { margin: 0.35rem 0 !important; border-color: #222 !important; }
         div[data-testid="stVerticalBlock"] > div { gap: 0.35rem; }
     </style>
@@ -128,8 +128,8 @@ def grafico_com_variacao(tickers_nomes: dict, cores: list, var_dict: dict):
             xref="paper", x=1.01, xanchor="left",
             yref="y", y=ret.iloc[-1], yanchor="middle",
             text=texto, showarrow=False,
-            bgcolor=cor, font=dict(color="white", size=10),
-            borderpad=3, align="left",
+            bgcolor=cor, font=dict(color="white", size=8),
+            borderpad=2, align="left",
         )
 
     fig.update_layout(
@@ -142,16 +142,46 @@ def grafico_com_variacao(tickers_nomes: dict, cores: list, var_dict: dict):
 # ----------------------------------------------------
 # SEÇÃO 1: MOEDAS & DXY (LINHA)
 # ----------------------------------------------------
-st.markdown("###### Moedas & DXY (% Variação - 1h / 10 dias)")
-st.plotly_chart(grafico_com_variacao(MOEDAS, CORES_MOEDAS, dados_moedas_var), use_container_width=True)
+col_m1, col_m2 = st.columns([2.8, 1], gap="small")
+
+with col_m1:
+    st.markdown("###### Moedas & DXY (% Variação - 1h / 10 dias)")
+    st.plotly_chart(grafico_com_variacao(MOEDAS, CORES_MOEDAS, dados_moedas_var), use_container_width=True)
+
+with col_m2:
+    st.markdown("###### Var. % Moedas / DXY")
+    itens = list(MOEDAS.items())
+    for i in range(0, len(itens), 2):
+        par = itens[i:i + 2]
+        cols_par = st.columns(2, gap="small")
+        for j, (ticker, nome) in enumerate(par):
+            if ticker in dados_moedas_var:
+                info = dados_moedas_var[ticker]
+                with cols_par[j]:
+                    st.metric(nome, f"{info['preco']:.4f}", f"{info['var_pct']:+.2f}%")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
 # SEÇÃO 2: US TREASURY YIELDS (LINHA)
 # ----------------------------------------------------
-st.markdown("###### US Treasury Yields - 2Y, 5Y, 10Y, 30Y (% Variação - 1h / 10 dias)")
-st.plotly_chart(grafico_com_variacao(YIELDS, CORES_YIELDS, dados_yields_var), use_container_width=True)
+col_y1, col_y2 = st.columns([2.8, 1], gap="small")
+
+with col_y1:
+    st.markdown("###### US Treasury Yields - 2Y, 5Y, 10Y, 30Y (% Variação - 1h / 10 dias)")
+    st.plotly_chart(grafico_com_variacao(YIELDS, CORES_YIELDS, dados_yields_var), use_container_width=True)
+
+with col_y2:
+    st.markdown("###### Var. % Diária Yields")
+    itens = list(YIELDS.items())
+    for i in range(0, len(itens), 2):
+        par = itens[i:i + 2]
+        cols_par = st.columns(2, gap="small")
+        for j, (ticker, nome) in enumerate(par):
+            if ticker in dados_yields_var:
+                info = dados_yields_var[ticker]
+                with cols_par[j]:
+                    st.metric(nome, f"{info['preco']:.3f}%", f"{info['var_pct']:+.2f}%")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
