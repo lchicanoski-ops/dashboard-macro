@@ -252,7 +252,7 @@ with col_adr:
             var = dados_var[ticker]['var_pct']
             tickers_adr.append(ticker)
             variacoes_adr.append(var)
-            cores_adr.append('#26a69a' if var >= 0 else '#ef5350')
+            cores_adr.append('#1b8a2e' if var >= 0 else '#ff3b30')
 
     fig_adrs_bar = go.Figure(data=[
         go.Bar(
