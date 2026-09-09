@@ -5,8 +5,7 @@ import pandas as pd
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
-# Configuração de atualização automática da página a cada 60 segundos (60000 ms)
-# Se não tiver a biblioteca instalada, instale via: pip install streamlit-autorefresh
+# Configuração de atualização automática a cada 60 segundos
 try:
     from streamlit_autorefresh import st_autorefresh
     st_autorefresh(interval=60000, key="datarefresh")
@@ -38,13 +37,22 @@ st.markdown("""
 
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
-# Dicionários
+# Dicionário de Moedas na ordem exata da imagem: 6E, 6J, 6L, 6M, DXY
 MOEDAS = {
-    '6L=F': '(6L)',
-    '6J=F': '(6J)',
-    '6M=F': '(6M)',
-    '6E=F': '(6E)',
+    '6E=F': '6E1!',
+    '6J=F': '6J1!',
+    '6L=F': '6L1!',
+    '6M=F': '6M1!',
     'DX-Y.NYB': 'DXY'
+}
+
+# Cores idênticas às da imagem
+CORES_MOEDAS_EXATAS = {
+    '6E=F': '#1e50bc',      # Azul (Euro)
+    '6J=F': '#d4c92a',      # Amarelo (Iene)
+    '6L=F': '#1b8a2e',      # Verde (Real)
+    '6M=F': '#c87820',      # Laranja/Marrom (Peso MXN)
+    'DX-Y.NYB': '#dcdcdc'   # Branco/Cinza Claro (DXY)
 }
 
 YIELDS = {
@@ -67,14 +75,13 @@ ADRS = {
     'NU': 'Nubank'
 }
 
-CORES_MOEDAS = ['#4fc3f7', '#ffb300', '#26a69a', '#ab47bc', '#ef5350']
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
 
 ALTURA_GRAFICO = 230
 MARGEM_GRAFICO = dict(l=10, r=95, t=25, b=10)
 
 # ------------------------------------------------------------------
-# DADOS DE LINHA E DIÁRIOS
+# DADOS EM LOTE
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
@@ -85,29 +92,29 @@ todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys())
 dados_linha = carregar_dados_linha(todos_linha)
 
 @st.cache_data(ttl=60)
-def obter_dados_diarios(tickers):
+def obter_dados_diarios_lote(tickers):
     dados_info = {}
-    for ticker in tickers:
-        try:
-            t = yf.Ticker(ticker)
-            hist = t.history(period="2d")
-            if len(hist) >= 2:
-                fechamento_anterior = hist['Close'].iloc[-2]
-                preco_atual = hist['Close'].iloc[-1]
+    try:
+        df = yf.download(tickers, period="5d", interval="1d")['Close']
+        for ticker in tickers:
+            s = df[ticker].dropna() if ticker in df.columns else pd.Series()
+            if len(s) >= 2:
+                fechamento_anterior = s.iloc[-2]
+                preco_atual = s.iloc[-1]
                 var_pct = ((preco_atual / fechamento_anterior) - 1) * 100
                 dados_info[ticker] = {
                     'preco': preco_atual,
                     'var_pct': var_pct
                 }
-        except:
-            pass
+    except Exception:
+        pass
     return dados_info
 
-dados_moedas_var = obter_dados_diarios(list(MOEDAS.keys()))
-dados_yields_var = obter_dados_diarios(list(YIELDS.keys()))
-dados_adrs_var = obter_dados_diarios(list(ADRS.keys()))
+todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(ADRS.keys())
+dados_var = obter_dados_diarios_lote(todos_diarios)
 
-def grafico_com_variacao(tickers_nomes: dict, cores: list, var_dict: dict):
+# Função de Gráfico customizada para suportar mapa de cores fixo
+def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
         if ticker not in dados_linha.columns:
@@ -115,7 +122,13 @@ def grafico_com_variacao(tickers_nomes: dict, cores: list, var_dict: dict):
         s = dados_linha[ticker].dropna()
         if s.empty:
             continue
-        cor = cores[i % len(cores)]
+        
+        # Pega a cor exata do dicionário se for um dict, ou da lista pelo índice
+        if isinstance(cores, dict):
+            cor = cores.get(ticker, '#FFFFFF')
+        else:
+            cor = cores[i % len(cores)]
+
         ret = ((s / s.iloc[0]) - 1) * 100
         fig.add_trace(go.Scatter(
             x=ret.index, y=ret, mode='lines', name=nome,
@@ -133,16 +146,30 @@ def grafico_com_variacao(tickers_nomes: dict, cores: list, var_dict: dict):
             borderpad=2, align="left",
         )
 
-    fig.update_layout(
-        template="plotly_dark", height=ALTURA_GRAFICO, margin=MARGEM_GRAFICO,
+    layout_args = dict(
+        template="plotly_dark", 
+        height=ALTURA_GRAFICO, 
+        margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
-        showlegend=False,
+        showlegend=mostrar_legenda
     )
+
+    if mostrar_legenda:
+        layout_args['legend'] = dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(0,0,0,0.4)",
+            font=dict(size=9)
+        )
+
+    fig.update_layout(**layout_args)
     
-    # REMOVE A LINHA ESTICADA DOS FINS DE SEMANA
+    # Remove fins de semana do eixo do gráfico
     fig.update_xaxes(
         rangebreaks=[
-            dict(bounds=["sat", "mon"]) # Oculta o intervalo de sábado a segunda
+            dict(bounds=["sat", "mon"])
         ]
     )
     return fig
@@ -154,7 +181,10 @@ col_m1, col_m2 = st.columns([2.8, 1], gap="small")
 
 with col_m1:
     st.markdown("###### Moedas & DXY (% Variação - 1h / Histórico)")
-    st.plotly_chart(grafico_com_variacao(MOEDAS, CORES_MOEDAS, dados_moedas_var), use_container_width=True)
+    st.plotly_chart(
+        grafico_com_variacao(MOEDAS, CORES_MOEDAS_EXATAS, dados_var, mostrar_legenda=True), 
+        use_container_width=True
+    )
 
 with col_m2:
     st.markdown("###### Var. % Moedas / DXY")
@@ -163,8 +193,8 @@ with col_m2:
         par = itens[i:i + 2]
         cols_par = st.columns(2, gap="small")
         for j, (ticker, nome) in enumerate(par):
-            if ticker in dados_moedas_var:
-                info = dados_moedas_var[ticker]
+            if ticker in dados_var:
+                info = dados_var[ticker]
                 with cols_par[j]:
                     st.metric(nome, f"{info['preco']:.4f}", f"{info['var_pct']:+.2f}%")
 
@@ -177,7 +207,10 @@ col_y1, col_y2 = st.columns([2.8, 1], gap="small")
 
 with col_y1:
     st.markdown("###### US Treasury Yields - 2Y, 5Y, 10Y, 30Y (% Variação - 1h / Histórico)")
-    st.plotly_chart(grafico_com_variacao(YIELDS, CORES_YIELDS, dados_yields_var), use_container_width=True)
+    st.plotly_chart(
+        grafico_com_variacao(YIELDS, CORES_YIELDS, dados_var, mostrar_legenda=False), 
+        use_container_width=True
+    )
 
 with col_y2:
     st.markdown("###### Var. % Diária Yields")
@@ -186,8 +219,8 @@ with col_y2:
         par = itens[i:i + 2]
         cols_par = st.columns(2, gap="small")
         for j, (ticker, nome) in enumerate(par):
-            if ticker in dados_yields_var:
-                info = dados_yields_var[ticker]
+            if ticker in dados_var:
+                info = dados_var[ticker]
                 with cols_par[j]:
                     st.metric(nome, f"{info['preco']:.3f}%", f"{info['var_pct']:+.2f}%")
 
@@ -198,14 +231,13 @@ st.markdown("<hr>", unsafe_allow_html=True)
 # ----------------------------------------------------
 st.markdown("###### ADRs Brasileiras (Variação Diária)")
 
-# 1. Monta e exibe o gráfico PRIMEIRO
 tickers_adr = []
 variacoes_adr = []
 cores = []
 
 for ticker in ADRS.keys():
-    if ticker in dados_adrs_var:
-        var = dados_adrs_var[ticker]['var_pct']
+    if ticker in dados_var:
+        var = dados_var[ticker]['var_pct']
         tickers_adr.append(ticker)
         variacoes_adr.append(var)
         cores.append('#26a69a' if var >= 0 else '#ef5350')
@@ -233,7 +265,6 @@ col_bar, col_vazia = st.columns([2.2, 1])
 with col_bar:
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
-# 2. Exibe as Cotações/Cards ABAIXO do gráfico
 adrs_lista = list(ADRS.items())
 linha1 = adrs_lista[:5]
 linha2 = adrs_lista[5:]
@@ -241,13 +272,13 @@ linha2 = adrs_lista[5:]
 cols1 = st.columns(5, gap="small")
 for idx, (ticker, nome) in enumerate(linha1):
     with cols1[idx]:
-        if ticker in dados_adrs_var:
-            info = dados_adrs_var[ticker]
+        if ticker in dados_var:
+            info = dados_var[ticker]
             st.metric(f"{ticker} ({nome})", f"US$ {info['preco']:.2f}", f"{info['var_pct']:+.2f}%")
 
 cols2 = st.columns(5, gap="small")
 for idx, (ticker, nome) in enumerate(linha2):
     with cols2[idx]:
-        if ticker in dados_adrs_var:
-            info = dados_adrs_var[ticker]
+        if ticker in dados_var:
+            info = dados_var[ticker]
             st.metric(f"{ticker} ({nome})", f"US$ {info['preco']:.2f}", f"{info['var_pct']:+.2f}%")
