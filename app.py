@@ -40,18 +40,18 @@ st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
 # Dicionários
 MOEDAS = {
-    '6L=F': 'BRL (6L)',
-    '6J=F': 'JPY (6J)',
-    '6M=F': 'MXN (6M)',
-    '6E=F': 'EUR (6E)',
+    '6L=F': '(6L)',
+    '6J=F': '(6J)',
+    '6M=F': '(6M)',
+    '6E=F': '(6E)',
     'DX-Y.NYB': 'DXY'
 }
 
 YIELDS = {
-    '^TNX': 'US10Y',
+    '^TYX': 'US30Y',
     '^ZT=F': 'US2Y',
-    '^FVX': 'US5Y',
-    '^TYX': 'US30Y'
+    '^FNX': 'US10Y',
+    '^TVX': 'US05Y'
 }
 
 ADRS = {
