@@ -50,8 +50,8 @@ MOEDAS = {
 YIELDS = {
     '^TYX': 'US30Y',
     '^ZT=F': 'US2Y',
-    '^FNX': 'US10Y',
-    '^TVX': 'US05Y'
+    '^TNX': 'US10Y',
+    '^FVX': 'US05Y'
 }
 
 ADRS = {
