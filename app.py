@@ -94,7 +94,7 @@ ADRS = {
 
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
 
-ALTURA_GRAFICO = 220
+ALTURA_GRAFICO = 200
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
@@ -235,11 +235,11 @@ with col_direita:
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# LINHA 2: ADRs BRASILEIRAS E COMMODITIES/RISCO (AMBOS EM BARRAS)
+# LINHA 2: ADRs BRASILEIRAS E COMMODITIES/RISCO (AMBOS COM TABELAS INFERIORES)
 # ----------------------------------------------------
 col_adr, col_macro = st.columns(2, gap="medium")
 
-# Lado Esquerdo: ADRs Brasileiras
+# Lado Esquerdo: ADRs Brasileiras (Gráfico em cima, Tabela dividida em baixo)
 with col_adr:
     st.markdown("###### ADRs Brasileiras (Variação Diária %)")
     
@@ -260,59 +260,75 @@ with col_adr:
             y=variacoes_adr,
             marker_color=cores_adr,
             text=[f"{v:+.2f}%" for v in variacoes_adr],
-            textposition='auto',
-            textfont=dict(color='white', size=10)
+            textposition='outside',
+            textfont=dict(color='white', size=9)
         )
     ])
 
     fig_adrs_bar.update_layout(
         template="plotly_dark",
-        height=ALTURA_GRAFICO,
+        height=170,
         yaxis=dict(title=None, zeroline=True, zerolinecolor='#444', zerolinewidth=1),
         xaxis=dict(title=None, tickfont=dict(size=9)),
-        margin=dict(l=5, r=5, t=10, b=20)
+        margin=dict(l=5, r=5, t=10, b=5)
     )
 
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
-# Lado Direito: EWZ, VIX & Commodities
+    # Tabela de Rótulos em baixo dividida em 2 colunas
+    metade_adr = len(ADRS) // 2
+    adrs_col1 = dict(list(ADRS.items())[:metade_adr])
+    adrs_col2 = dict(list(ADRS.items())[metade_adr:])
+
+    c_t_adr1, c_t_adr2 = st.columns(2, gap="small")
+    with c_t_adr1:
+        st.markdown(renderizar_tabela_lateral(adrs_col1, dados_var), unsafe_allow_html=True)
+    with c_t_adr2:
+        st.markdown(renderizar_tabela_lateral(adrs_col2, dados_var), unsafe_allow_html=True)
+
+# Lado Direito: EWZ, VIX & Commodities (Gráfico em cima, Tabela dividida em baixo)
 with col_macro:
     st.markdown("###### EWZ, VIX & Commodities (Variação Diária %)")
-    c_g3, c_t3 = st.columns([3, 1], gap="small")
     
-    tickers_comm = []
+    tickers_comm_x = []
     variacoes_comm = []
     cores_comm = []
 
     for ticker, nome in COMMODITIES_RISCO.items():
         if ticker in dados_var:
             var = dados_var[ticker]['var_pct']
-            tickers_comm.append(nome)
+            tickers_comm_x.append(nome)
             variacoes_comm.append(var)
             cores_comm.append('#26a69a' if var >= 0 else '#ef5350')
 
-    with c_g3:
-        fig_comm_bar = go.Figure(data=[
-            go.Bar(
-                x=tickers_comm,
-                y=variacoes_comm,
-                marker_color=cores_comm,
-                text=[f"{v:+.2f}%" for v in variacoes_comm],
-                textposition='auto',
-                textfont=dict(color='white', size=10)
-            )
-        ])
-
-        fig_comm_bar.update_layout(
-            template="plotly_dark",
-            height=ALTURA_GRAFICO,
-            yaxis=dict(title=None, zeroline=True, zerolinecolor='#444', zerolinewidth=1),
-            xaxis=dict(title=None, tickfont=dict(size=9)),
-            margin=dict(l=5, r=5, t=10, b=20)
+    fig_comm_bar = go.Figure(data=[
+        go.Bar(
+            x=tickers_comm_x,
+            y=variacoes_comm,
+            marker_color=cores_comm,
+            text=[f"{v:+.2f}%" for v in variacoes_comm],
+            textposition='outside',
+            textfont=dict(color='white', size=9)
         )
+    ])
 
-        st.plotly_chart(fig_comm_bar, use_container_width=True)
+    fig_comm_bar.update_layout(
+        template="plotly_dark",
+        height=170,
+        yaxis=dict(title=None, zeroline=True, zerolinecolor='#444', zerolinewidth=1),
+        xaxis=dict(title=None, tickfont=dict(size=9)),
+        margin=dict(l=5, r=5, t=10, b=5)
+    )
 
-    with c_t3:
-        st.markdown("<h6 style='text-align: center;'>Risco / Comm</h6>", unsafe_allow_html=True)
-        st.markdown(renderizar_tabela_lateral(COMMODITIES_RISCO, dados_var), unsafe_allow_html=True)
+    st.plotly_chart(fig_comm_bar, use_container_width=True)
+
+    # Tabela de Rótulos em baixo dividida em 2 colunas
+    metade_comm = len(COMMODITIES_RISCO) // 2
+    comm_col1 = dict(list(COMMODITIES_RISCO.items())[:metade_comm])
+    comm_col2 = dict(list(COMMODITIES_RISCO.items())[metade_comm:])
+
+    c_t_comm1, c_t_comm2 = st.columns(2, gap="small")
+    with c_t_comm1:
+        st.markdown(renderizar_tabela_lateral(comm_col1, dados_var), unsafe_allow_html=True)
+    with c_t_comm2:
+        st.markdown(renderizar_tabela_lateral(comm_col2, dados_var), unsafe_allow_html=True)
