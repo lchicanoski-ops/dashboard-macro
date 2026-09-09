@@ -13,7 +13,6 @@ st.markdown("""
 
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
-# ADRs Atualizadas (Principais + Novas inclusões)
 ADRS = {
     'VALE': 'Vale',
     'PBR': 'Petrobras',
@@ -32,7 +31,8 @@ YIELDS = {'^TNX': 'US10Y', '^IRX': 'US2Y', '^FVX': 'US5Y', '^TYX': 'US30Y'}
 
 @st.cache_data(ttl=60)
 def carregar_dados_intraday(tickers):
-    df = yf.download(tickers, period="1d", interval="1m")['Close']
+    # Puxa 5 dias para garantir que pegamos o fechamento de ontem e os dados de hoje
+    df = yf.download(tickers, period="5d", interval="1m")['Close']
     return df
 
 todos_tickers = list(ADRS.keys()) + list(MOEDAS.keys()) + list(YIELDS.keys())
@@ -71,39 +71,53 @@ with col2:
             var = ((s.iloc[-1] / s.iloc[0]) - 1) * 100
             st.metric(label=nome, value=f"{s.iloc[-1]:.3f}%", delta=f"{var:.2f}%")
 
-# ADRs EM COLUNAS / CARDS DE VARIAÇÃO (Divididas em 2 linhas de 5 para melhor visualização)
-st.subheader("ADRs Brasileiras (Intraday)")
+# ADRs EM CARDS (CALCULADO EM RELAÇÃO AO FECHAMENTO DE ONTEM)
+st.subheader("ADRs Brasileiras (Variação Diária x Fechamento Anterior)")
+
+@st.cache_data(ttl=60)
+def obter_variacao_diaria_adrs(tickers):
+    info_adrs = {}
+    for ticker in tickers:
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period="2d")
+            if len(hist) >= 2:
+                fechamento_anterior = hist['Close'].iloc[-2]
+                preco_atual = hist['Close'].iloc[-1]
+                var_pct = ((preco_atual / fechamento_anterior) - 1) * 100
+                info_adrs[ticker] = (preco_atual, var_pct)
+        except:
+            pass
+    return info_adrs
+
+dados_adrs = obter_variacao_diaria_adrs(list(ADRS.keys()))
 
 adrs_lista = list(ADRS.items())
 linha1 = adrs_lista[:5]
 linha2 = adrs_lista[5:]
 
-# Primeira linha de ADRs
+# Primeira linha
 cols1 = st.columns(5)
 for idx, (ticker, nome) in enumerate(linha1):
     with cols1[idx]:
-        if ticker in dados.columns and not dados[ticker].dropna().empty:
-            s = dados[ticker].dropna()
-            preco_atual = s.iloc[-1]
-            var_pct = ((preco_atual / s.iloc[0]) - 1) * 100
+        if ticker in dados_adrs:
+            preco, var_pct = dados_adrs[ticker]
             st.metric(
                 label=f"{ticker} ({nome})", 
-                value=f"US$ {preco_atual:.2f}", 
+                value=f"US$ {preco:.2f}", 
                 delta=f"{var_pct:+.2f}%"
             )
 
-st.write("") # Espaçamento
+st.write("")
 
-# Segunda linha de ADRs
+# Segunda linha
 cols2 = st.columns(5)
 for idx, (ticker, nome) in enumerate(linha2):
     with cols2[idx]:
-        if ticker in dados.columns and not dados[ticker].dropna().empty:
-            s = dados[ticker].dropna()
-            preco_atual = s.iloc[-1]
-            var_pct = ((preco_atual / s.iloc[0]) - 1) * 100
+        if ticker in dados_adrs:
+            preco, var_pct = dados_adrs[ticker]
             st.metric(
                 label=f"{ticker} ({nome})", 
-                value=f"US$ {preco_atual:.2f}", 
+                value=f"US$ {preco:.2f}", 
                 delta=f"{var_pct:+.2f}%"
             )
