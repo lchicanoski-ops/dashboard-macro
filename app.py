@@ -5,7 +5,6 @@ import pandas as pd
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
-# Configuração de atualização automática a cada 60 segundos
 try:
     from streamlit_autorefresh import st_autorefresh
     st_autorefresh(interval=60000, key="datarefresh")
@@ -24,7 +23,6 @@ st.markdown("""
         hr { margin: 0.2rem 0 !important; border-color: #222 !important; }
         div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
 
-        /* Tabela lateral ultracompacta com texto colado */
         .side-table {
             width: auto;
             border-collapse: collapse;
@@ -91,11 +89,22 @@ ALTURA_GRAFICO = 240
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
-# DADOS EM LOTE
+# CARREGAMENTO E ALINHAMENTO TEMPORAL
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
     df = yf.download(tickers, period="5d", interval="1h")['Close']
+    
+    # 1. Normaliza fuso horário
+    if df.index.tz is not None:
+        df.index = df.index.tz_convert('UTC')
+        
+    # 2. Força um grid de tempo unificado de 1 hora para todos os ativos
+    df = df.resample('1h').last()
+    
+    # 3. Preenche buracos de horário (DXY / feriados)
+    df = df.ffill().bfill()
+    
     return df
 
 todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys())
@@ -123,7 +132,6 @@ def obter_dados_diarios_lote(tickers):
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
 
-# Tabela Compacta
 def renderizar_tabela_lateral(tickers_map, dados_dict):
     html = '<table class="side-table">'
     for ticker, nome in tickers_map.items():
@@ -136,32 +144,38 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
     html += '</table>'
     return html
 
-# Gráfico Customizado (Sem Gaps do Fim de Semana e Sem Rabiscos)
+# ------------------------------------------------------------------
+# FUNÇÃO DO GRÁFICO CORRIGIDA
+# ------------------------------------------------------------------
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
+    
+    # Filtra colunas dos ativos do gráfico atual
+    df_filtrado = dados_linha[list(tickers_nomes.keys())].dropna(how='all')
+    
+    # Cria o eixo X comum em texto (sem gaps do fim de semana)
+    datas_str = df_filtrado.index.strftime('%d/%m %H:%M')
+
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
-        if ticker not in dados_linha.columns:
-            continue
-        
-        # Tratamento do DXY e demais ativos
-        s = dados_linha[ticker].dropna()
-        if s.empty:
+        if ticker not in df_filtrado.columns:
             continue
             
-        # Ordena a série temporal e remove horários duplicados
-        s = s.sort_index()
-        s = s.loc[~s.index.duplicated(keep='first')]
-        
+        s = df_filtrado[ticker]
+        if s.empty or s.iloc[0] == 0:
+            continue
+
         cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
 
+        # Calcula o retorno percentual na mesma base
         ret = ((s / s.iloc[0]) - 1) * 100
-        
-        # Converte em texto APÓS a ordenação limpa
-        datas_str = ret.index.strftime('%Y-%m-%d %H:%M')
 
         fig.add_trace(go.Scatter(
-            x=datas_str, y=ret.values, mode='lines', name=nome,
+            x=datas_str, 
+            y=ret.values, 
+            mode='lines', 
+            name=nome,
             line=dict(color=cor, width=1.8),
+            connectgaps=True
         ))
 
         var_pct = var_dict.get(ticker, {}).get('var_pct')
@@ -180,7 +194,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         height=ALTURA_GRAFICO, 
         margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
-        xaxis=dict(type='category', showticklabels=False), # Mantém o formato anterior sem vácuo do FDS
+        xaxis=dict(type='category', showticklabels=False),
         showlegend=mostrar_legenda
     )
 
