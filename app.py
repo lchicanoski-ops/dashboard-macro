@@ -54,7 +54,6 @@ MOEDAS = {
     '6J=F': '6J1!',
     '6L=F': '6L1!',
     '6M=F': '6M1!',
-    'DX-Y.NYB': 'DXY'
 }
 
 CORES_MOEDAS_EXATAS = {
