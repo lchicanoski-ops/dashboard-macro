@@ -1,9 +1,245 @@
+import streamlit as st
+import yfinance as yf
+import plotly.graph_objects as go
+import pandas as pd
+
+st.set_page_config(page_title="Cenário Macro", layout="wide")
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=60000, key="datarefresh")
+except ImportError:
+    pass
+
+# ------------------------------------------------------------------
+# CSS - Design Ultradenso
+# ------------------------------------------------------------------
+st.markdown("""
+    <style>
+        .stApp { background-color: #0E1117; color: #FFFFFF; }
+        .block-container { padding-top: 0.5rem; padding-bottom: 0.5rem; padding-left: 1rem; padding-right: 1rem; }
+        h1 { font-size: 1.1rem !important; margin-bottom: 0.1rem !important; }
+        h2, h3, h6 { font-size: 0.82rem !important; margin-bottom: 0.1rem !important; margin-top: 0.1rem !important; }
+        hr { margin: 0.2rem 0 !important; border-color: #222 !important; }
+        div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
+
+        .side-table {
+            width: auto;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            margin: 0 auto;
+        }
+        .side-table tr {
+            border-bottom: 1px solid #1e2330;
+        }
+        .side-table td {
+            padding: 3px 6px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .symbol-col { text-align: left; color: #e0e0e0; }
+        .var-col { text-align: left; padding-left: 12px !important; }
+        .positive { color: #26a69a; }
+        .negative { color: #ef5350; }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
+
+# ------------------------------------------------------------------
+# DICIONÁRIOS DE ATIVOS
+# ------------------------------------------------------------------
+MOEDAS = {
+    '6E=F': '6E1!',
+    '6J=F': '6J1!',
+    '6L=F': '6L1!',
+    '6M=F': '6M1!',
+    'DX=F': 'DXY'
+}
+
+CORES_MOEDAS_EXATAS = {
+    '6E=F': '#1e50bc',
+    '6J=F': '#d4c92a',
+    '6L=F': '#1b8a2e',
+    '6M=F': '#c87820',
+    'DX=F': '#dcdcdc'
+}
+
+YIELDS = {
+    '^TYX': 'US30Y',
+    '^ZT=F': 'US2Y',
+    '^TNX': 'US10Y',
+    '^FVX': 'US05Y'
+}
+
+COMMODITIES_RISCO = {
+    'EWZ': 'EWZ',
+    '^VIX': 'VIX',
+    'CL=F': 'Petróleo',
+    'GC=F': 'Ouro'
+}
+
+ADRS = {
+    'VALE': 'Vale',
+    'PBR': 'Petrobras',
+    'ITUB': 'Itaú',
+    'BBD': 'Bradesco',
+    'ABEV': 'Ambev',
+    'GGB': 'Gerdau',
+    'CSAN': 'Cosan',
+    'BAK': 'Braskem',
+    'XP': 'XP Inc',
+    'NU': 'Nubank'
+}
+
+CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
+
+ALTURA_GRAFICO = 220
+MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
+
+# ------------------------------------------------------------------
+# CARREGAMENTO DE DADOS
+# ------------------------------------------------------------------
+@st.cache_data(ttl=60)
+def carregar_dados_linha(tickers):
+    df = yf.download(tickers, period="5d", interval="1h")['Close']
+    if df.index.tz is not None:
+        df.index = df.index.tz_convert('UTC')
+    df = df.dropna(how='all')
+    df = df.ffill().bfill()
+    return df
+
+todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys())
+dados_linha = carregar_dados_linha(todos_linha)
+
+@st.cache_data(ttl=60)
+def obter_dados_diarios_lote(tickers):
+    dados_info = {}
+    try:
+        df = yf.download(tickers, period="5d", interval="1d")['Close']
+        for ticker in tickers:
+            s = df[ticker].dropna() if ticker in df.columns else pd.Series()
+            if len(s) >= 2:
+                fechamento_anterior = s.iloc[-2]
+                preco_atual = s.iloc[-1]
+                var_pct = ((preco_atual / fechamento_anterior) - 1) * 100
+                dados_info[ticker] = {
+                    'preco': preco_atual,
+                    'var_pct': var_pct
+                }
+    except Exception:
+        pass
+    return dados_info
+
+todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(COMMODITIES_RISCO.keys()) + list(ADRS.keys())
+dados_var = obter_dados_diarios_lote(todos_diarios)
+
+def renderizar_tabela_lateral(tickers_map, dados_dict):
+    html = '<table class="side-table">'
+    for ticker, nome in tickers_map.items():
+        if ticker in dados_dict:
+            info = dados_dict[ticker]
+            var = info['var_pct']
+            cor_classe = "positive" if var >= 0 else "negative"
+            var_fmt = f"{var:+.2f}%"
+            html += f'<tr><td class="symbol-col">{nome}</td><td class="var-col {cor_classe}">{var_fmt}</td></tr>'
+    html += '</table>'
+    return html
+
+# ------------------------------------------------------------------
+# CONSTRUÇÃO DOS GRÁFICOS DE LINHA
+# ------------------------------------------------------------------
+def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
+    fig = go.Figure()
+    df_filtrado = dados_linha[list(tickers_nomes.keys())].dropna(how='all')
+    datas_str = df_filtrado.index.strftime('%d/%m %H:%M')
+
+    for i, (ticker, nome) in enumerate(tickers_nomes.items()):
+        if ticker not in df_filtrado.columns:
+            continue
+            
+        s = df_filtrado[ticker]
+        if s.empty or s.iloc[0] == 0:
+            continue
+
+        cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
+        ret = ((s / s.iloc[0]) - 1) * 100
+
+        fig.add_trace(go.Scatter(
+            x=datas_str, 
+            y=ret.values, 
+            mode='lines', 
+            name=nome,
+            line=dict(color=cor, width=1.8),
+            connectgaps=True
+        ))
+
+        var_pct = var_dict.get(ticker, {}).get('var_pct')
+        texto = f"{nome} {var_pct:+.2f}%" if var_pct is not None else nome
+
+        fig.add_annotation(
+            xref="paper", x=1.005, xanchor="left",
+            yref="y", y=ret.iloc[-1], yanchor="middle",
+            text=texto, showarrow=False,
+            bgcolor=cor, font=dict(color="white", size=8),
+            borderpad=2, align="left",
+        )
+
+    layout_args = dict(
+        template="plotly_dark", 
+        height=ALTURA_GRAFICO, 
+        margin=MARGEM_GRAFICO,
+        yaxis=dict(title=None, zeroline=True),
+        xaxis=dict(type='category', showticklabels=False),
+        showlegend=mostrar_legenda
+    )
+
+    if mostrar_legenda:
+        layout_args['legend'] = dict(
+            yanchor="top", y=0.99, xanchor="left", x=0.01,
+            bgcolor="rgba(0,0,0,0.4)", font=dict(size=8)
+        )
+
+    fig.update_layout(**layout_args)
+    return fig
+
+# ----------------------------------------------------
+# LINHA 1: MOEDAS E YIELDS
+# ----------------------------------------------------
+col_esquerda, col_direita = st.columns(2, gap="medium")
+
+with col_esquerda:
+    st.markdown("###### Moedas & DXY (% Variação)")
+    c_g1, c_t1 = st.columns([3, 1], gap="small")
+    with c_g1:
+        st.plotly_chart(
+            grafico_com_variacao(MOEDAS, CORES_MOEDAS_EXATAS, dados_var, mostrar_legenda=True), 
+            use_container_width=True
+        )
+    with c_t1:
+        st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
+
+with col_direita:
+    st.markdown("###### US Treasury Yields (% Variação)")
+    c_g2, c_t2 = st.columns([3, 1], gap="small")
+    with c_g2:
+        st.plotly_chart(
+            grafico_com_variacao(YIELDS, CORES_YIELDS, dados_var, mostrar_legenda=False), 
+            use_container_width=True
+        )
+    with c_t2:
+        st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(YIELDS, dados_var), unsafe_allow_html=True)
+
+st.markdown("<hr>", unsafe_allow_html=True)
+
 # ----------------------------------------------------
 # LINHA 2: ADRs BRASILEIRAS E COMMODITIES/RISCO (AMBOS EM BARRAS)
 # ----------------------------------------------------
 col_adr, col_macro = st.columns(2, gap="medium")
 
-# Lado Esquerdo: ADRs Brasileiras (Gráfico de Barras)
+# Lado Esquerdo: ADRs Brasileiras
 with col_adr:
     st.markdown("###### ADRs Brasileiras (Variação Diária %)")
     
@@ -39,7 +275,7 @@ with col_adr:
 
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
-# Lado Direito: EWZ, VIX & Commodities (Gráfico de Barras + Tabela Lateral)
+# Lado Direito: EWZ, VIX & Commodities
 with col_macro:
     st.markdown("###### EWZ, VIX & Commodities (Variação Diária %)")
     c_g3, c_t3 = st.columns([3, 1], gap="small")
