@@ -11,6 +11,9 @@ try:
 except ImportError:
     pass
 
+# ------------------------------------------------------------------
+# CSS - Design Ultradenso
+# ------------------------------------------------------------------
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; color: #FFFFFF; }
@@ -43,12 +46,13 @@ st.markdown("""
 
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
+# Dicionários de Ativos (Uso do futuro DX=F para o DXY)
 MOEDAS = {
     '6E=F': '6E1!',
     '6J=F': '6J1!',
     '6L=F': '6L1!',
     '6M=F': '6M1!',
-    'DX-Y.NYB': 'DXY'
+    'DX=F': 'DXY'
 }
 
 CORES_MOEDAS_EXATAS = {
@@ -56,7 +60,7 @@ CORES_MOEDAS_EXATAS = {
     '6J=F': '#d4c92a',
     '6L=F': '#1b8a2e',
     '6M=F': '#c87820',
-    'DX-Y.NYB': '#dcdcdc'
+    'DX=F': '#dcdcdc'
 }
 
 YIELDS = {
@@ -85,12 +89,22 @@ ALTURA_GRAFICO = 240
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
-# CARREGAMENTO DE DADOS (5 DIAS ÚTEIS)
+# CARREGAMENTO DE DADOS
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
-    # Puxa 7d para garantir 5 dias úteis operacionais
-    df = yf.download(tickers, period="7d", interval="1h")['Close']
+    df = yf.download(tickers, period="5d", interval="1h")['Close']
+    
+    # Normaliza Fuso Horário
+    if df.index.tz is not None:
+        df.index = df.index.tz_convert('UTC')
+        
+    # Remove linhas completamente vazias (ex: fins de semana inteiros)
+    df = df.dropna(how='all')
+    
+    # Preenche falhas pontuais de negociação para manter alinhamento
+    df = df.ffill().bfill()
+    
     return df
 
 todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys())
@@ -131,35 +145,37 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
     return html
 
 # ------------------------------------------------------------------
-# CONSTRUÇÃO DO GRÁFICO (EIXO DADO COM REMOÇÃO DE GAPS)
+# CONSTRUÇÃO DO GRÁFICO
 # ------------------------------------------------------------------
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
+    
+    # Filtra os dados apenas para os ativos do gráfico atual
+    df_filtrado = dados_linha[list(tickers_nomes.keys())].dropna(how='all')
+    
+    # Eixo X contínuo sem quebras
+    datas_str = df_filtrado.index.strftime('%d/%m %H:%M')
 
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
-        if ticker not in dados_linha.columns:
+        if ticker not in df_filtrado.columns:
             continue
             
-        s = dados_linha[ticker].dropna()
-        if s.empty:
+        s = df_filtrado[ticker]
+        if s.empty or s.iloc[0] == 0:
             continue
-            
-        # Limpeza individual do ativo (ordenação temporal pura + remoção de duplicatas)
-        s = s.sort_index()
-        s = s.loc[~s.index.duplicated(keep='first')]
 
         cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
 
-        # Retorno % acumulado no período de 5 dias úteis
+        # Retorno percentual acumulado a partir da primeira vela disponível
         ret = ((s / s.iloc[0]) - 1) * 100
 
         fig.add_trace(go.Scatter(
-            x=ret.index, 
+            x=datas_str, 
             y=ret.values, 
             mode='lines', 
             name=nome,
             line=dict(color=cor, width=1.8),
-            connectgaps=False # Impede linhas retas cobrindo períodos sem dados
+            connectgaps=True
         ))
 
         var_pct = var_dict.get(ticker, {}).get('var_pct')
@@ -178,13 +194,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         height=ALTURA_GRAFICO, 
         margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
-        xaxis=dict(
-            type='date',
-            rangebreaks=[
-                dict(bounds=["sat", "mon"]), # Remove sábados e domingos
-                dict(bounds=[17, 18], pattern="hour") # Oculta o fechamento diário entre sessões da CME/ICE
-            ]
-        ),
+        xaxis=dict(type='category', showticklabels=False),
         showlegend=mostrar_legenda
     )
 
@@ -198,7 +208,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
     return fig
 
 # ----------------------------------------------------
-# SEÇÃO PRINCIPAL: GRÁFICOS LADO A LADO
+# SEÇÃO PRINCIPAL
 # ----------------------------------------------------
 col_esquerda, col_direita = st.columns(2, gap="medium")
 
