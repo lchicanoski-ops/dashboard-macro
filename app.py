@@ -13,34 +13,33 @@ except ImportError:
     pass
 
 # ------------------------------------------------------------------
-# CSS - Estilização compacta personalizada
+# CSS - Compacto e sem espaços sobressalentes
 # ------------------------------------------------------------------
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; color: #FFFFFF; }
-        .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-        h1 { font-size: 1.25rem !important; margin-bottom: 0.3rem !important; }
-        h2, h3 { font-size: 0.95rem !important; margin-bottom: 0.2rem !important; margin-top: 0.2rem !important; }
-        hr { margin: 0.35rem 0 !important; border-color: #222 !important; }
-        div[data-testid="stVerticalBlock"] > div { gap: 0.2rem; }
+        .block-container { padding-top: 0.8rem; padding-bottom: 0.8rem; padding-left: 1.5rem; padding-right: 1.5rem; }
+        h1 { font-size: 1.1rem !important; margin-bottom: 0.2rem !important; }
+        h2, h3 { font-size: 0.85rem !important; margin-bottom: 0.1rem !important; }
+        hr { margin: 0.25rem 0 !important; border-color: #222 !important; }
+        div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
 
-        /* Tabela lateral estilo Terminal */
+        /* Tabela lateral enxuta estilo Terminal */
         .side-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.8rem;
-            margin-top: 5px;
+            font-size: 0.82rem;
+            margin-top: 2px;
         }
         .side-table tr {
             border-bottom: 1px solid #1e2330;
         }
         .side-table td {
-            padding: 6px 0px;
+            padding: 4px 2px;
             font-weight: 600;
         }
-        .symbol-col { text-align: left; color: #e0e0e0; width: 35%; }
-        .price-col { text-align: center; color: #ffffff; width: 35%; }
-        .var-col { text-align: right; width: 30%; }
+        .symbol-col { text-align: left; color: #e0e0e0; width: 50%; }
+        .var-col { text-align: right; width: 50%; }
         .positive { color: #26a69a; }
         .negative { color: #ef5350; }
     </style>
@@ -87,8 +86,8 @@ ADRS = {
 
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
 
-ALTURA_GRAFICO = 230
-MARGEM_GRAFICO = dict(l=10, r=95, t=25, b=10)
+ALTURA_GRAFICO = 220
+MARGEM_GRAFICO = dict(l=5, r=65, t=15, b=5)
 
 # ------------------------------------------------------------------
 # DADOS EM LOTE
@@ -123,17 +122,16 @@ def obter_dados_diarios_lote(tickers):
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
 
-# Função sem quebras de linha para evitar formatação Markdown acidental
-def renderizar_tabela_lateral(tickers_map, dados_dict, formato_preco="{:.4f}"):
+# Tabela Lateral mostrando apenas Ticker e Variação %
+def renderizar_tabela_lateral(tickers_map, dados_dict):
     html = '<table class="side-table">'
     for ticker, nome in tickers_map.items():
         if ticker in dados_dict:
             info = dados_dict[ticker]
             var = info['var_pct']
             cor_classe = "positive" if var >= 0 else "negative"
-            preco_fmt = formato_preco.format(info['preco'])
             var_fmt = f"{var:+.2f}%"
-            html += f'<tr><td class="symbol-col">{nome}:</td><td class="price-col">{preco_fmt}</td><td class="var-col {cor_classe}">{var_fmt}</td></tr>'
+            html += f'<tr><td class="symbol-col">{nome}</td><td class="var-col {cor_classe}">{var_fmt}</td></tr>'
     html += '</table>'
     return html
 
@@ -159,7 +157,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         texto = f"{nome} {var_pct:+.2f}%" if var_pct is not None else nome
 
         fig.add_annotation(
-            xref="paper", x=1.01, xanchor="left",
+            xref="paper", x=1.005, xanchor="left",
             yref="y", y=ret.iloc[-1], yanchor="middle",
             text=texto, showarrow=False,
             bgcolor=cor, font=dict(color="white", size=8),
@@ -187,7 +185,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
 # ----------------------------------------------------
 # SEÇÃO 1: MOEDAS & DXY
 # ----------------------------------------------------
-col_m1, col_m2 = st.columns([2.8, 1], gap="small")
+col_m1, col_m2 = st.columns([4, 1], gap="small")
 
 with col_m1:
     st.markdown("###### Moedas & DXY (% Variação - 1h / Histórico)")
@@ -198,14 +196,14 @@ with col_m1:
 
 with col_m2:
     st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
-    st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var, formato_preco="{:.4f}"), unsafe_allow_html=True)
+    st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
 # SEÇÃO 2: US TREASURY YIELDS
 # ----------------------------------------------------
-col_y1, col_y2 = st.columns([2.8, 1], gap="small")
+col_y1, col_y2 = st.columns([4, 1], gap="small")
 
 with col_y1:
     st.markdown("###### US Treasury Yields - 2Y, 5Y, 10Y, 30Y (% Variação - 1h / Histórico)")
@@ -216,7 +214,7 @@ with col_y1:
 
 with col_y2:
     st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
-    st.markdown(renderizar_tabela_lateral(YIELDS, dados_var, formato_preco="{:.3f}%"), unsafe_allow_html=True)
+    st.markdown(renderizar_tabela_lateral(YIELDS, dados_var), unsafe_allow_html=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -249,13 +247,13 @@ fig_adrs_bar = go.Figure(data=[
 
 fig_adrs_bar.update_layout(
     template="plotly_dark",
-    height=200,
+    height=190,
     yaxis=dict(title=None, zeroline=True, zerolinecolor='white', zerolinewidth=1.5),
     xaxis=dict(title=None),
-    margin=dict(l=10, r=10, t=15, b=10)
+    margin=dict(l=5, r=5, t=15, b=5)
 )
 
-col_bar, col_vazia = st.columns([2.8, 1])
+col_bar, col_vazia = st.columns([4, 1])
 with col_bar:
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
