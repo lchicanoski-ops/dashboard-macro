@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import requests
-from scipy.stats import norm
+import math
 
 st.set_page_config(page_title="Terminal Macro & GEX", layout="wide", initial_sidebar_state="collapsed")
 
@@ -29,7 +29,6 @@ tab_macro, tab_gex = st.tabs(["📊 Dashboard Macro", "⚡ Perfil GEX (B3 / EWZ)
 with tab_macro:
     st.subheader("Termômetro Macro & Correlação de Moedas")
 
-    # Black-Scholes / Utilitários Macro
     @st.cache_data(ttl=60)
     def obter_dados_moedas_3d():
         tickers = {
@@ -48,7 +47,6 @@ with tab_macro:
                     df = hist[['Close']].copy()
                     df.columns = [nome]
                     
-                    # Inversão das cotações indiretas (JPY, BRL, MXN)
                     if nome in ['6J (Iene)', '6L (Real)', '6M (Peso Mex)']:
                         df[nome] = 1.0 / df[nome]
                     
@@ -121,7 +119,6 @@ with tab_macro:
         )
         return fig
 
-    # Renderização da aba Macro
     df_moedas = obter_dados_moedas_3d()
 
     if not df_moedas.empty:
@@ -160,11 +157,15 @@ with tab_macro:
 # ABA 2: PERFIL GEX (B3 / EWZ)
 # ==================================================================
 with tab_gex:
+    # Função nativa para PDF da normal (substitui scipy.stats.norm.pdf)
+    def normal_pdf(x):
+        return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
+
     def black_scholes_gamma(S, K, T, r, sigma):
         if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
             return 0
-        d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-        return norm.pdf(d1) / (S * sigma * np.sqrt(T))
+        d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
+        return normal_pdf(d1) / (S * sigma * math.sqrt(T))
 
     @st.cache_data(ttl=120)
     def obter_dados_gex_auto(ativo_selecionado, taxa_di=0.1075, dias_vencimento=15):
