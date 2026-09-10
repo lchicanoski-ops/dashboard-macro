@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
@@ -54,7 +55,7 @@ MOEDAS = {
     '6J=F': '6J1!',
     '6L=F': '6L1!',
     '6M=F': '6M1!',
-    'DX=F': 'DXY'
+    'DX=Y': 'DXY'
 }
 
 CORES_MOEDAS_EXATAS = {
@@ -98,12 +99,13 @@ ALTURA_GRAFICO = 200
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
-# CARREGAMENTO DE DADOS
+# CARREGAMENTO DE DADOS COM SUPORTE A PRÉ-MERCADO (PREPOST)
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
-    df = yf.download(tickers, period="5d", interval="1h")['Close']
-    if df.index.tz is not None:
+    # prepost=True garante que candles de intraday incluam o pré-mercado
+    df = yf.download(tickers, period="5d", interval="15m", prepost=True, progress=False)['Close']
+    if isinstance(df, pd.DataFrame) and df.index.tz is not None:
         df.index = df.index.tz_convert('UTC')
     df = df.dropna(how='all')
     df = df.ffill().bfill()
@@ -115,20 +117,40 @@ dados_linha = carregar_dados_linha(todos_linha)
 @st.cache_data(ttl=60)
 def obter_dados_diarios_lote(tickers):
     dados_info = {}
-    try:
-        df = yf.download(tickers, period="5d", interval="1d")['Close']
-        for ticker in tickers:
-            s = df[ticker].dropna() if ticker in df.columns else pd.Series()
-            if len(s) >= 2:
-                fechamento_anterior = s.iloc[-2]
-                preco_atual = s.iloc[-1]
+    for ticker in tickers:
+        try:
+            tk = yf.Ticker(ticker)
+            
+            # Tenta capturar preço do pré-mercado/última cotação em tempo real via fast_info
+            preco_atual = None
+            try:
+                preco_atual = tk.fast_info['lastPrice']
+            except Exception:
+                pass
+            
+            # Puxa o histórico de 5 dias com prepost=True em candles de 5 minutos
+            hist = tk.history(period="5d", interval="5m", prepost=True)
+            
+            if not hist.empty:
+                if preco_atual is None or np.isnan(preco_atual):
+                    preco_atual = hist['Close'].iloc[-1]
+                
+                # Agrupa por data para pegar o fechamento regular do dia anterior
+                fechamentos_diarios = hist['Close'].groupby(hist.index.date).last()
+                
+                if len(fechamentos_diarios) >= 2:
+                    fechamento_anterior = fechamentos_diarios.iloc[-2]
+                else:
+                    fechamento_anterior = hist['Close'].iloc[0]
+                
                 var_pct = ((preco_atual / fechamento_anterior) - 1) * 100
                 dados_info[ticker] = {
                     'preco': preco_atual,
                     'var_pct': var_pct
                 }
-    except Exception:
-        pass
+        except Exception:
+            pass
+            
     return dados_info
 
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(COMMODITIES_RISCO.keys()) + list(ADRS.keys())
@@ -151,7 +173,13 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
 # ------------------------------------------------------------------
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
-    df_filtrado = dados_linha[list(tickers_nomes.keys())].dropna(how='all')
+    
+    # Valida se os tickers existem no dataframe
+    cols_existentes = [t for t in tickers_nomes.keys() if t in dados_linha.columns]
+    if not cols_existentes:
+        return fig
+        
+    df_filtrado = dados_linha[cols_existentes].dropna(how='all')
     datas_str = df_filtrado.index.strftime('%d/%m %H:%M')
 
     for i, (ticker, nome) in enumerate(tickers_nomes.items()):
@@ -235,11 +263,10 @@ with col_direita:
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# LINHA 2: ADRs BRASILEIRAS E COMMODITIES/RISCO (AMBOS COM TABELAS INFERIORES)
+# LINHA 2: ADRs BRASILEIRAS E COMMODITIES/RISCO
 # ----------------------------------------------------
 col_adr, col_macro = st.columns(2, gap="medium")
 
-# Lado Esquerdo: ADRs Brasileiras (Gráfico em cima, Tabela dividida em baixo)
 with col_adr:
     st.markdown("###### ADRs Brasileiras (Variação Diária %)")
     
@@ -275,7 +302,6 @@ with col_adr:
 
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
-    # Tabela de Rótulos em baixo dividida em 2 colunas
     metade_adr = len(ADRS) // 2
     adrs_col1 = dict(list(ADRS.items())[:metade_adr])
     adrs_col2 = dict(list(ADRS.items())[metade_adr:])
@@ -286,7 +312,6 @@ with col_adr:
     with c_t_adr2:
         st.markdown(renderizar_tabela_lateral(adrs_col2, dados_var), unsafe_allow_html=True)
 
-# Lado Direito: EWZ, VIX & Commodities (Gráfico em cima, Tabela dividida em baixo)
 with col_macro:
     st.markdown("###### EWZ, VIX & Commodities (Variação Diária %)")
     
@@ -322,7 +347,6 @@ with col_macro:
 
     st.plotly_chart(fig_comm_bar, use_container_width=True)
 
-    # Tabela de Rótulos em baixo dividida em 2 colunas
     metade_comm = len(COMMODITIES_RISCO) // 2
     comm_col1 = dict(list(COMMODITIES_RISCO.items())[:metade_comm])
     comm_col2 = dict(list(COMMODITIES_RISCO.items())[metade_comm:])
