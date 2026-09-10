@@ -1,126 +1,143 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
-import requests
-import math
 
-st.set_page_config(page_title="Terminal Macro & GEX", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Terminal Macro", layout="wide", initial_sidebar_state="collapsed")
 
-# Estilização CSS para ocultar a sidebar e otimizar o layout
+# Estilização CSS para visual de terminal de trading
 st.markdown("""
     <style>
         [data-testid="stSidebar"] { display: none; }
-        .block-container { padding-top: 0.8rem; padding-bottom: 0.5rem; padding-left: 1.5rem; padding-right: 1.5rem; }
-        h1 { font-size: 1.2rem !important; margin-bottom: 0.2rem !important; }
-        div.row-widget.stRadio > div { flex-direction: row; }
+        .block-container { padding-top: 1rem; padding-bottom: 0.5rem; padding-left: 1.5rem; padding-right: 1.5rem; }
+        h1, h2, h3 { margin-bottom: 0.2rem !important; }
+        div[data-testid="stMetricValue"] { font-size: 1.3rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# ------------------------------------------------------------------
-# NAVEGAÇÃO PRINCIPAL (TABS)
-# ------------------------------------------------------------------
-tab_macro, tab_gex = st.tabs(["📊 Dashboard Macro", "⚡ Perfil GEX (B3 / EWZ)"])
+st.title("📊 Termômetro Macro & Correlação")
 
-# ==================================================================
-# ABA 1: DASHBOARD MACRO
-# ==================================================================
-with tab_macro:
-    st.subheader("Termômetro Macro & Correlação de Moedas")
+@st.cache_data(ttl=60)
+def carregar_dados_macro():
+    tickers = {
+        # Yields & Índices
+        'US10Y': '^TNX',
+        'S&P 500': '^GSPC',
+        'EWZ': 'EWZ',
+        # ADRs
+        'VALE (ADR)': 'VALE',
+        'PETR (PBR)': 'PBR',
+        'ITUB (ADR)': 'ITUB',
+        # Moedas
+        '6E (Euro)': 'EURUSD=X',
+        '6J (Iene)': 'JPY=X',
+        '6L (Real)': 'BRL=X',
+        '6M (Peso Mex)': 'MXN=X',
+        'DXY': 'DX-Y.NYB'
+    }
+    
+    dados_pct = {}
+    dados_hist_moedas = []
 
-    @st.cache_data(ttl=60)
-    def obter_dados_moedas_3d():
-        tickers = {
-            '6E (Euro)': 'EURUSD=X',
-            '6J (Iene)': 'JPY=X',
-            '6L (Real)': 'BRL=X',
-            '6M (Peso Mex)': 'MXN=X',
-            'DXY': 'DX-Y.NYB'
-        }
-        df_list = []
-        for nome, ticker in tickers.items():
-            try:
-                t = yf.Ticker(ticker)
-                hist = t.history(period="3d", interval="15m")
-                if not hist.empty:
-                    df = hist[['Close']].copy()
-                    df.columns = [nome]
-                    
+    for nome, ticker in tickers.items():
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period="3d", interval="15m")
+            if not hist.empty:
+                last_price = hist['Close'].iloc[-1]
+                prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else last_price
+                
+                # Para o gráfico histórico de moedas (3 dias em base %)
+                if nome in ['6E (Euro)', '6J (Iene)', '6L (Real)', '6M (Peso Mex)', 'DXY']:
+                    df_m = hist[['Close']].copy()
+                    df_m.columns = [nome]
+                    # Inverter par para moedas cotadas contra o USD
                     if nome in ['6J (Iene)', '6L (Real)', '6M (Peso Mex)']:
-                        df[nome] = 1.0 / df[nome]
-                    
-                    base_val = df[nome].iloc[0]
-                    df[f"{nome}_pct"] = ((df[nome] - base_val) / base_val) * 100.0
-                    df_list.append(df[[f"{nome}_pct"]])
-            except Exception:
-                pass
+                        df_m[nome] = 1.0 / df_m[nome]
+                    base_val = df_m[nome].iloc[0]
+                    df_m[f"{nome}_pct"] = ((df_m[nome] - base_val) / base_val) * 100.0
+                    dados_hist_moedas.append(df_m[[f"{nome}_pct"]])
 
-        if df_list:
-            df_final = pd.concat(df_list, axis=1).ffill().bfill()
-            return df_final
-        return pd.DataFrame()
+                chg_pct = ((last_price - prev_close) / prev_close) * 100.0
+                dados_pct[nome] = {'price': last_price, 'change_pct': chg_pct}
+        except Exception:
+            pass
 
-    def plotar_grafico_moedas(df_moedas, moedas_visiveis):
-        fig = go.Figure()
-        cores = {
-            '6E (Euro)': '#0055ff',      # Azul
-            '6J (Iene)': '#e6b800',      # Amarelo
-            '6L (Real)': '#00e640',      # Verde
-            '6M (Peso Mex)': '#ff8000',  # Laranja
-            'DXY': '#ffffff'             # Branco
-        }
+    df_hist_moedas = pd.concat(dados_hist_moedas, axis=1).ffill().bfill() if dados_hist_moedas else pd.DataFrame()
+    return dados_pct, df_hist_moedas
 
-        cols = [col for col in df_moedas.columns if any(m in col for m in moedas_visiveis)]
+def plotar_grafico_moedas(df_moedas, moedas_visiveis):
+    fig = go.Figure()
+    cores = {
+        '6E (Euro)': '#0055ff',      # Azul
+        '6J (Iene)': '#e6b800',      # Amarelo
+        '6L (Real)': '#00e640',      # Verde
+        '6M (Peso Mex)': '#ff8000',  # Laranja
+        'DXY': '#ffffff'             # Branco
+    }
 
-        for col in cols:
-            nome_limpo = col.replace("_pct", "")
-            cor = cores.get(nome_limpo, '#ffffff')
-            y_vals = df_moedas[col]
-            last_val = y_vals.iloc[-1]
-            
-            fig.add_trace(go.Scatter(
-                x=df_moedas.index,
-                y=y_vals,
-                mode='lines',
-                name=nome_limpo,
-                line=dict(color=cor, width=2)
-            ))
-            
-            fig.add_annotation(
-                x=df_moedas.index[-1],
-                y=last_val,
-                text=f"<b>{nome_limpo.split()[0]}: {last_val:+.2f}%</b>",
-                showarrow=False,
-                xanchor="left",
-                yanchor="middle",
-                bgcolor=cor,
-                bordercolor=cor,
-                font=dict(color="black" if cor in ['#e6b800', '#00e640'] else "white", size=10)
-            )
+    cols = [col for col in df_moedas.columns if any(m in col for m in moedas_visiveis)]
 
-        fig.update_layout(
-            title="Correlação de Moedas (3 Dias) - Base %",
-            template="plotly_dark",
-            height=500,
-            margin=dict(l=10, r=90, t=30, b=10),
-            xaxis=dict(showgrid=True, gridcolor="#222"),
-            yaxis=dict(showgrid=True, gridcolor="#222", title="Variação %"),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="left",
-                x=0,
-                font=dict(size=11),
-                itemclick="toggle",
-                itemdoubleclick="toggleothers"
-            )
+    for col in cols:
+        nome_limpo = col.replace("_pct", "")
+        cor = cores.get(nome_limpo, '#ffffff')
+        y_vals = df_moedas[col]
+        last_val = y_vals.iloc[-1]
+        
+        fig.add_trace(go.Scatter(
+            x=df_moedas.index,
+            y=y_vals,
+            mode='lines',
+            name=nome_limpo,
+            line=dict(color=cor, width=2)
+        ))
+        
+        fig.add_annotation(
+            x=df_moedas.index[-1],
+            y=last_val,
+            text=f"<b>{nome_limpo.split()[0]}: {last_val:+.2f}%</b>",
+            showarrow=False,
+            xanchor="left",
+            yanchor="middle",
+            bgcolor=cor,
+            bordercolor=cor,
+            font=dict(color="black" if cor in ['#e6b800', '#00e640'] else "white", size=10)
         )
-        return fig
 
-    df_moedas = obter_dados_moedas_3d()
+    fig.update_layout(
+        title="Correlação de Moedas (3 Dias) - Base %",
+        template="plotly_dark",
+        height=500,
+        margin=dict(l=10, r=90, t=30, b=10),
+        xaxis=dict(showgrid=True, gridcolor="#222"),
+        yaxis=dict(showgrid=True, gridcolor="#222", title="Variação %"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
+    )
+    return fig
 
+# Carregar dados
+dados_pct, df_moedas = carregar_dados_macro()
+
+if dados_pct:
+    # 1. LINHA DE CARDS SUPERIORES (Yields, Índices & ADRs)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    
+    def exibe_card(col, titulo, chave):
+        if chave in dados_pct:
+            val = dados_pct[chave]['change_pct']
+            p = dados_pct[chave]['price']
+            col.metric(titulo, f"{p:.2f}", f"{val:+.2f}%")
+
+    exibe_card(col1, "US10Y (Yield)", "US10Y")
+    exibe_card(col2, "S&P 500", "S&P 500")
+    exibe_card(col3, "EWZ", "EWZ")
+    exibe_card(col4, "VALE (ADR)", "VALE (ADR)")
+    exibe_card(col5, "PETR (PBR)", "PETR (PBR)")
+    exibe_card(col6, "ITUB (ADR)", "ITUB (ADR)")
+
+    st.divider()
+
+    # 2. BLOCO DO GRÁFICO DE MOEDAS + TABELA
     if not df_moedas.empty:
         opcoes_disponiveis = ['6E (Euro)', '6J (Iene)', '6L (Real)', '6M (Peso Mex)', 'DXY']
         moedas_selecionadas = st.multiselect(
@@ -144,182 +161,10 @@ with tab_macro:
                 val = df_moedas[col].iloc[-1]
                 cor_txt = "#00e640" if val >= 0 else "#ff3b30"
                 st.markdown(
-                    f"<div style='display:flex; justify-content:space-between; font-size:1.1rem; margin-bottom:8px;'>"
+                    f"<div style='display:flex; justify-content:space-between; font-size:1.1rem; margin-bottom:12px;'>"
                     f"<b>{nome_limpo}!</b> <span style='color:{cor_txt}; font-weight:bold;'>{val:+.2f}%</span>"
                     f"</div>", 
                     unsafe_allow_html=True
                 )
-    else:
-        st.warning("Aguardando carregamento de dados de moedas...")
-
-
-# ==================================================================
-# ABA 2: PERFIL GEX (B3 / EWZ)
-# ==================================================================
-with tab_gex:
-    # Função nativa para PDF da normal (substitui scipy.stats.norm.pdf)
-    def normal_pdf(x):
-        return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
-
-    def black_scholes_gamma(S, K, T, r, sigma):
-        if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
-            return 0
-        d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
-        return normal_pdf(d1) / (S * sigma * math.sqrt(T))
-
-    @st.cache_data(ttl=120)
-    def obter_dados_gex_auto(ativo_selecionado, taxa_di=0.1075, dias_vencimento=15):
-        records = []
-        T = dias_vencimento / 365.0
-
-        if "BOVA11" in ativo_selecionado:
-            ticker_bova = yf.Ticker("BOVA11.SA")
-            hist_bova = ticker_bova.history(period="5d")
-            spot_bova = float(hist_bova['Close'].iloc[-1]) if not hist_bova.empty else 115.0
-            spot_real = round(spot_bova * 1000.0 / 500.0) * 500.0
-            
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url_b3 = "https://opcoes.net.br/listaopcoes/completa?idAcao=BOVA11&listarLicitadas=false"
-            
-            try:
-                req = requests.get(url_b3, headers=headers, timeout=4)
-                if req.status_code == 200:
-                    data_rows = req.json().get('data', {}).get('listaOpcoes', [])
-                    fator = spot_real / spot_bova
-                    
-                    for item in data_rows:
-                        strike_bova = float(item[2])
-                        tipo = str(item[1]).upper()
-                        oi = float(item[8]) if item[8] else 0
-                        strike_win = round((strike_bova * fator) / 500.0) * 500.0
-                        
-                        if oi > 0:
-                            gamma = black_scholes_gamma(spot_bova, strike_bova, T, taxa_di, 0.22)
-                            gex_val = gamma * oi * 100 * spot_real * 0.01
-                            
-                            if tipo == 'CALL':
-                                records.append({'strike': strike_win, 'oi_call': oi, 'oi_put': 0, 'call_gex': gex_val, 'put_gex': 0.0})
-                            elif tipo == 'PUT':
-                                records.append({'strike': strike_win, 'oi_call': 0, 'oi_put': oi, 'call_gex': 0.0, 'put_gex': gex_val})
-            except Exception:
-                pass
-
-        else:  # EWZ
-            ticker_ewz = yf.Ticker("EWZ")
-            hist_ewz = ticker_ewz.history(period="5d")
-            spot_real = float(hist_ewz['Close'].iloc[-1]) if not hist_ewz.empty else 28.50
-
-        # Fallback estruturado
-        if not records:
-            step = 500.0 if "BOVA11" in ativo_selecionado else 0.5
-            strike_base = round(spot_real / step) * step
-            strikes = [strike_base + i * step for i in range(-15, 16)]
-            
-            np.random.seed(int(spot_real * 10))
-            for K in strikes:
-                dist = abs(K - spot_real)
-                mult_c = 3.0 if K == strike_base + (2 * step) else 1.0
-                mult_p = 3.0 if K == strike_base - (3 * step) else 1.0
-                
-                oi_call = int(max(1000, (50000 * np.exp(-dist / (step * 8)) + np.random.normal(0, 1500)) * mult_c))
-                oi_put = int(max(1000, (50000 * np.exp(-dist / (step * 8)) + np.random.normal(0, 1500)) * mult_p))
-                
-                gamma = black_scholes_gamma(spot_real, K, T, taxa_di, 0.20)
-                
-                records.append({
-                    'strike': K,
-                    'oi_call': oi_call,
-                    'oi_put': oi_put,
-                    'call_gex': gamma * oi_call * 100 * 0.01,
-                    'put_gex': gamma * oi_put * 100 * 0.01
-                })
-
-        df = pd.DataFrame(records).groupby('strike')[['oi_call', 'oi_put', 'call_gex', 'put_gex']].sum().reset_index()
-        return processar_metricas(df, spot_real)
-
-    def processar_metricas(df, spot_real):
-        df['gex_net'] = df['call_gex'] - df['put_gex']
-
-        df_calls_above = df[df['strike'] > spot_real]
-        call_wall = df_calls_above.loc[df_calls_above['oi_call'].idxmax()]['strike'] if not df_calls_above.empty else df.loc[df['oi_call'].idxmax()]['strike']
-
-        df_puts_below = df[df['strike'] < spot_real]
-        put_wall = df_puts_below.loc[df_puts_below['oi_put'].idxmax()]['strike'] if not df_puts_below.empty else df.loc[df['oi_put'].idxmax()]['strike']
-
-        df['sign'] = np.sign(df['gex_net'])
-        trocas = np.where(np.diff(df['sign']) != 0)[0]
-        
-        if len(trocas) > 0:
-            idx_flip = trocas[np.argmin(np.abs(df.iloc[trocas]['strike'] - spot_real))]
-            gamma_flip = df.iloc[idx_flip]['strike']
-        else:
-            gamma_flip = df.loc[df['gex_net'].abs().idxmin()]['strike']
-
-        metricas = {
-            'spot': spot_real,
-            'call_wall': call_wall,
-            'put_wall': put_wall,
-            'gamma_flip': gamma_flip
-        }
-
-        df_plot = df[['strike', 'gex_net']].rename(columns={'gex_net': 'gex'})
-        return df_plot, metricas
-
-    def plotar_grafico_gex(df_gex, metricas, nome_ativo):
-        fig = go.Figure()
-        cores = ['#1b8a2e' if v >= 0 else '#ff3b30' for v in df_gex['gex']]
-        
-        fig.add_trace(go.Bar(
-            y=df_gex['strike'],
-            x=df_gex['gex'],
-            orientation='h',
-            marker_color=cores,
-            name="Net GEX"
-        ))
-
-        fig.add_hline(y=metricas['spot'], line_dash="solid", line_color="yellow", 
-                    annotation_text=f"Spot Automático: {metricas['spot']:.2f}", annotation_position="top left")
-        
-        fig.add_hline(y=metricas['call_wall'], line_dash="dash", line_color="#ab47bc", 
-                    annotation_text=f"Call Wall (Teto): {metricas['call_wall']:.2f}", annotation_position="top right")
-        
-        fig.add_hline(y=metricas['put_wall'], line_dash="dash", line_color="#ff3b30", 
-                    annotation_text=f"Put Wall (Piso): {metricas['put_wall']:.2f}", annotation_position="bottom right")
-        
-        fig.add_hline(y=metricas['gamma_flip'], line_dash="dash", line_color="#00e5ff", 
-                    annotation_text=f"Gamma Flip: {metricas['gamma_flip']:.2f}", annotation_position="bottom left")
-
-        fig.update_layout(
-            title=f"Perfil GEX Alinhado - {nome_ativo}",
-            template="plotly_dark",
-            xaxis_title="Gamma Exposure Líquido",
-            yaxis_title="Strike / Pontos",
-            height=610,
-            margin=dict(l=10, r=10, t=40, b=10)
-        )
-        return fig
-
-    # UI da Aba GEX
-    ativo_gex = st.radio(
-        "Selecione o Ativo:",
-        ["EWZ (EUA / Brasil ETF)", "BOVA11 / WIN (B3)"],
-        index=1,
-        horizontal=True
-    )
-
-    df_gex, metricas = obter_dados_gex_auto(ativo_gex)
-
-    col_graf, col_card = st.columns([3, 1])
-
-    with col_graf:
-        st.plotly_chart(plotar_grafico_gex(df_gex, metricas, ativo_gex), use_container_width=True)
-
-    with col_card:
-        unidade = "pts" if "BOVA11" in ativo_gex else "$"
-        fmt = ".0f" if "BOVA11" in ativo_gex else ".2f"
-        
-        st.markdown("### Níveis Chave")
-        st.metric("Call Wall (TETO)", f"{metricas['call_wall']:{fmt}} {unidade}")
-        st.metric("Spot Automático", f"{metricas['spot']:{fmt}} {unidade}")
-        st.metric("Gamma Flip", f"{metricas['gamma_flip']:{fmt}} {unidade}")
-        st.metric("Put Wall (PISO)", f"{metricas['put_wall']:{fmt}} {unidade}")
+else:
+    st.info("Carregando cotações de mercado...")
