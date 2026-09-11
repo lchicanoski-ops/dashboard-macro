@@ -1,38 +1,55 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
-import requests
 import plotly.graph_objects as go
+import pandas as pd
+import numpy as np
+import requests
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
+try:
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=60000, key="datarefresh")
+except ImportError:
+    pass
+
 # ------------------------------------------------------------------
-# CSS - versao compacta (cards menores, menos espaco entre secoes)
+# CSS - Design Ultradenso (inalterado)
 # ------------------------------------------------------------------
 st.markdown("""
     <style>
         .stApp { background-color: #0E1117; color: #FFFFFF; }
-        .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-        h1 { font-size: 1.25rem !important; margin-bottom: 0.3rem !important; }
-        h2, h3 { font-size: 0.95rem !important; margin-bottom: 0.2rem !important; margin-top: 0.2rem !important; }
-        [data-testid="stMetric"] {
-            background-color: #161a25;
-            border-radius: 6px;
-            padding: 6px 8px;
-            margin-bottom: 4px;
+        .block-container { padding-top: 0.5rem; padding-bottom: 0.5rem; padding-left: 1rem; padding-right: 1rem; }
+        h1 { font-size: 1.1rem !important; margin-bottom: 0.1rem !important; }
+        h2, h3, h6 { font-size: 0.82rem !important; margin-bottom: 0.1rem !important; margin-top: 0.1rem !important; }
+        hr { margin: 0.2rem 0 !important; border-color: #222 !important; }
+        div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
+
+        .side-table {
+            width: auto;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            margin: 0 auto;
         }
-        [data-testid="stMetricValue"] { font-size: 0.82rem !important; }
-        [data-testid="stMetricLabel"] { font-size: 0.65rem !important; }
-        [data-testid="stMetricDelta"] { font-size: 0.65rem !important; }
-        hr { margin: 0.35rem 0 !important; border-color: #222 !important; }
-        div[data-testid="stVerticalBlock"] > div { gap: 0.35rem; }
+        .side-table tr {
+            border-bottom: 1px solid #1e2330;
+        }
+        .side-table td {
+            padding: 3px 6px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .symbol-col { text-align: left; color: #e0e0e0; }
+        .var-col { text-align: left; padding-left: 12px !important; }
+        .positive { color: #26a69a; }
+        .negative { color: #ef5350; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
 # ------------------------------------------------------------------
-# Configuração da API da Twelve Data
+# API da Twelve Data (usada agora para Moedas e ADRs)
 # ------------------------------------------------------------------
 st.sidebar.header("Configuração")
 TD_API_KEY = st.secrets.get("TWELVE_DATA_API_KEY", "") if hasattr(st, "secrets") else ""
@@ -47,30 +64,47 @@ if not TD_API_KEY:
 TD_BASE = "https://api.twelvedata.com"
 
 # ------------------------------------------------------------------
-# Dicionários
+# DICIONÁRIOS DE ATIVOS
 # ------------------------------------------------------------------
-# Moedas: a Twelve Data (free) nao tem os futuros da CME (6L/6M/6J/6E),
-# entao usamos o par a vista (spot) equivalente.
+# Moedas: a Twelve Data (free) nao cobre os futuros da CME (6E/6J/6L/6M),
+# entao usamos o par a vista (spot) equivalente. DXY continua no Yahoo
+# porque indice nao esta disponivel no plano gratuito da Twelve Data.
 MOEDAS_TD = {
-    'USD/BRL': 'BRL (6L)',
-    'USD/JPY': 'JPY (6J)',
-    'USD/MXN': 'MXN (6M)',
-    'EUR/USD': 'EUR (6E)',
+    'EUR/USD': 'EUR',
+    'USD/JPY': 'JPY',
+    'USD/BRL': 'BRL',
+    'USD/MXN': 'MXN',
 }
-# DXY (indice) nao esta disponivel no plano free da Twelve Data -> mantido via Yahoo
-DXY_TICKER_YAHOO = 'DX-Y.NYB'
+DXY_TICKER = 'DX=F'
 
-# Yields continuam no Yahoo: nem Twelve Data nem Alpha Vantage (free) cobrem
-# yield de titulo do tesouro de forma direta e confiavel.
+MOEDAS = {**MOEDAS_TD, DXY_TICKER: 'DXY'}
+
+CORES_MOEDAS_EXATAS = {
+    'EUR/USD': '#1e50bc',
+    'USD/JPY': '#d4c92a',
+    'USD/BRL': '#1b8a2e',
+    'USD/MXN': '#c87820',
+    DXY_TICKER: '#dcdcdc'
+}
+
+# Yields continuam no Yahoo: nem Twelve Data nem Alpha Vantage (free)
+# cobrem yield de titulo do tesouro de forma direta e confiavel.
 YIELDS = {
+    '^TYX': 'US30Y',
+    '^ZT=F': 'US2Y',
     '^TNX': 'US10Y',
-    '^ZT=F': 'US2Y',   # obs: verificar esse ticker, ver nota no chat
-    '^FVX': 'US5Y',
-    '^TYX': 'US30Y'
+    '^FVX': 'US05Y'
+}
+
+COMMODITIES_RISCO = {
+    'EWZ': 'EWZ',
+    '^VIX': 'VIX',
+    'CL=F': 'Petróleo',
+    'GC=F': 'Ouro'
 }
 
 # ADRs: cobertas em açoes americanas no plano free da Twelve Data
-ADRS_TD = {
+ADRS = {
     'VALE': 'Vale',
     'PBR': 'Petrobras',
     'ITUB': 'Itaú',
@@ -83,18 +117,16 @@ ADRS_TD = {
     'NU': 'Nubank'
 }
 
-# paletas de cor fixas (linha do grafico = cor do bloco de variacao)
-CORES_MOEDAS = ['#4fc3f7', '#ffb300', '#26a69a', '#ab47bc', '#ef5350']
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
 
-ALTURA_GRAFICO = 230
-MARGEM_GRAFICO = dict(l=10, r=95, t=25, b=10)
+ALTURA_GRAFICO = 200
+MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
-# Funções Twelve Data (em lote, pra economizar chamadas/minuto do free tier)
+# TWELVE DATA - chamadas em lote (economiza o limite de 8/min do free)
 # ------------------------------------------------------------------
-@st.cache_data(ttl=300)
-def td_time_series_batch(symbols: list, api_key: str, interval: str = "1h", outputsize: int = 240):
+@st.cache_data(ttl=60)
+def td_time_series_batch(symbols: list, api_key: str, interval: str = "15min", outputsize: int = 480):
     resultado = {}
     if not api_key or not symbols:
         return resultado
@@ -114,8 +146,7 @@ def td_time_series_batch(symbols: list, api_key: str, interval: str = "1h", outp
             df = pd.DataFrame(valores)
             df["datetime"] = pd.to_datetime(df["datetime"])
             df = df.sort_values("datetime").set_index("datetime")
-            df["close"] = df["close"].astype(float)
-            resultado[sym] = df["close"]
+            resultado[sym] = df["close"].astype(float)
     except Exception:
         pass
     return resultado
@@ -145,209 +176,290 @@ def td_quote_batch(symbols: list, api_key: str):
     return resultado
 
 # ------------------------------------------------------------------
-# Funções Yahoo (ainda usadas para Yields e DXY)
+# CARREGAMENTO DE DADOS - YAHOO (Yields, Commodities/Risco, DXY)
+# Mantido com suporte a pré-mercado (prepost) igual ao original
 # ------------------------------------------------------------------
-@st.cache_data(ttl=300)
-def carregar_dados_linha_yahoo(tickers):
-    df = yf.download(tickers, period="10d", interval="1h")['Close']
+@st.cache_data(ttl=60)
+def carregar_dados_linha(tickers):
+    df = yf.download(tickers, period="5d", interval="15m", prepost=True, progress=False)['Close']
+    if isinstance(df, pd.DataFrame) and df.index.tz is not None:
+        df.index = df.index.tz_convert('UTC').tz_localize(None)
+    elif isinstance(df, pd.Series) and df.index.tz is not None:
+        df.index = df.index.tz_convert('UTC').tz_localize(None)
+    df = df.dropna(how='all')
+    df = df.ffill().bfill()
     return df
 
 @st.cache_data(ttl=60)
-def obter_dados_diarios_yahoo(tickers):
+def obter_dados_diarios_lote(tickers):
     dados_info = {}
     for ticker in tickers:
         try:
-            t = yf.Ticker(ticker)
-            hist = t.history(period="2d")
-            if len(hist) >= 2:
-                fechamento_anterior = hist['Close'].iloc[-2]
-                preco_atual = hist['Close'].iloc[-1]
+            tk = yf.Ticker(ticker)
+
+            preco_atual = None
+            try:
+                preco_atual = tk.fast_info['lastPrice']
+            except Exception:
+                pass
+
+            hist = tk.history(period="5d", interval="5m", prepost=True)
+
+            if not hist.empty:
+                if preco_atual is None or np.isnan(preco_atual):
+                    preco_atual = hist['Close'].iloc[-1]
+
+                fechamentos_diarios = hist['Close'].groupby(hist.index.date).last()
+
+                if len(fechamentos_diarios) >= 2:
+                    fechamento_anterior = fechamentos_diarios.iloc[-2]
+                else:
+                    fechamento_anterior = hist['Close'].iloc[0]
+
                 var_pct = ((preco_atual / fechamento_anterior) - 1) * 100
-                dados_info[ticker] = {'preco': preco_atual, 'var_pct': var_pct}
+                dados_info[ticker] = {
+                    'preco': preco_atual,
+                    'var_pct': var_pct
+                }
         except Exception:
             pass
+
     return dados_info
 
 # ------------------------------------------------------------------
-# Coleta MOEDAS (Twelve Data + DXY via Yahoo)
+# MONTA DATAFRAME DE LINHA DAS MOEDAS (Twelve Data + DXY via Yahoo)
 # ------------------------------------------------------------------
-moedas_symbols = list(MOEDAS_TD.keys())
-ts_moedas = td_time_series_batch(moedas_symbols, TD_API_KEY)
-q_moedas = td_quote_batch(moedas_symbols, TD_API_KEY)
+@st.cache_data(ttl=60)
+def montar_dados_linha_moedas(td_symbols: list, api_key: str, dxy_ticker: str):
+    series_dict = td_time_series_batch(td_symbols, api_key, interval="15min", outputsize=480)
 
-dados_linha_moedas = {MOEDAS_TD[sym]: serie for sym, serie in ts_moedas.items()}
-dados_moedas_var = {MOEDAS_TD[sym]: info for sym, info in q_moedas.items()}
+    dxy_df = yf.download(dxy_ticker, period="5d", interval="15m", prepost=True, progress=False)
+    if not dxy_df.empty:
+        s_dxy = dxy_df['Close']
+        if isinstance(s_dxy, pd.DataFrame):
+            s_dxy = s_dxy.iloc[:, 0]
+        if s_dxy.index.tz is not None:
+            s_dxy.index = s_dxy.index.tz_convert('UTC').tz_localize(None)
+        series_dict[dxy_ticker] = s_dxy.dropna()
 
-dxy_linha_df = carregar_dados_linha_yahoo([DXY_TICKER_YAHOO])
-dxy_serie = dxy_linha_df[DXY_TICKER_YAHOO].dropna() if DXY_TICKER_YAHOO in getattr(dxy_linha_df, "columns", []) else pd.Series(dtype=float)
-if not dxy_serie.empty:
-    dados_linha_moedas['DXY'] = dxy_serie
-dxy_var = obter_dados_diarios_yahoo([DXY_TICKER_YAHOO])
-if DXY_TICKER_YAHOO in dxy_var:
-    dados_moedas_var['DXY'] = dxy_var[DXY_TICKER_YAHOO]
+    if not series_dict:
+        return pd.DataFrame()
 
-nomes_moedas_ordem = list(MOEDAS_TD.values()) + ['DXY']
-
-# ------------------------------------------------------------------
-# Coleta YIELDS (continua no Yahoo)
-# ------------------------------------------------------------------
-dados_linha_yields_raw = carregar_dados_linha_yahoo(list(YIELDS.keys()))
-dados_yields_var_ticker = obter_dados_diarios_yahoo(list(YIELDS.keys()))
-
-dados_linha_yields = {}
-for ticker, nome in YIELDS.items():
-    if ticker in getattr(dados_linha_yields_raw, "columns", []):
-        s = dados_linha_yields_raw[ticker].dropna()
-        if not s.empty:
-            dados_linha_yields[nome] = s
-dados_yields_var = {YIELDS[t]: info for t, info in dados_yields_var_ticker.items() if t in YIELDS}
+    df = pd.concat(series_dict, axis=1)
+    df = df.sort_index().ffill().bfill()
+    return df
 
 # ------------------------------------------------------------------
-# Coleta ADRs (Twelve Data)
+# COLETA DE DADOS
 # ------------------------------------------------------------------
-dados_adrs_var = td_quote_batch(list(ADRS_TD.keys()), TD_API_KEY)
+dados_linha_moedas = montar_dados_linha_moedas(list(MOEDAS_TD.keys()), TD_API_KEY, DXY_TICKER)
+dados_linha_yields = carregar_dados_linha(list(YIELDS.keys()))
 
+dados_var_yahoo = obter_dados_diarios_lote(list(YIELDS.keys()) + list(COMMODITIES_RISCO.keys()) + [DXY_TICKER])
+dados_var_td = {}
+dados_var_td.update(td_quote_batch(list(MOEDAS_TD.keys()), TD_API_KEY))
+dados_var_td.update(td_quote_batch(list(ADRS.keys()), TD_API_KEY))
+dados_var = {**dados_var_yahoo, **dados_var_td}
 
-def grafico_com_variacao(series_dict: dict, cores: list, var_dict: dict):
-    """Monta o grafico de linha com blocos coloridos de variacao % 'grudados'
-    na frente/direita do grafico, alinhados com o ultimo valor de cada linha."""
+def renderizar_tabela_lateral(tickers_map, dados_dict):
+    html = '<table class="side-table">'
+    for ticker, nome in tickers_map.items():
+        if ticker in dados_dict:
+            info = dados_dict[ticker]
+            var = info['var_pct']
+            cor_classe = "positive" if var >= 0 else "negative"
+            var_fmt = f"{var:+.2f}%"
+            html += f'<tr><td class="symbol-col">{nome}</td><td class="var-col {cor_classe}">{var_fmt}</td></tr>'
+    html += '</table>'
+    return html
+
+# ------------------------------------------------------------------
+# CONSTRUÇÃO DOS GRÁFICOS DE LINHA
+# ------------------------------------------------------------------
+def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, df_fonte: pd.DataFrame, mostrar_legenda: bool = False):
     fig = go.Figure()
-    for i, (nome, s) in enumerate(series_dict.items()):
-        s = s.dropna()
-        if s.empty:
+
+    if df_fonte is None or df_fonte.empty:
+        return fig
+
+    cols_existentes = [t for t in tickers_nomes.keys() if t in df_fonte.columns]
+    if not cols_existentes:
+        return fig
+
+    df_filtrado = df_fonte[cols_existentes].dropna(how='all')
+    datas_str = df_filtrado.index.strftime('%d/%m %H:%M')
+
+    for i, (ticker, nome) in enumerate(tickers_nomes.items()):
+        if ticker not in df_filtrado.columns:
             continue
-        cor = cores[i % len(cores)]
+
+        s = df_filtrado[ticker]
+        if s.empty or s.iloc[0] == 0:
+            continue
+
+        cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
         ret = ((s / s.iloc[0]) - 1) * 100
+
         fig.add_trace(go.Scatter(
-            x=ret.index, y=ret, mode='lines', name=nome,
-            line=dict(color=cor, width=2),
+            x=datas_str,
+            y=ret.values,
+            mode='lines',
+            name=nome,
+            line=dict(color=cor, width=1.8),
+            connectgaps=True
         ))
 
-        var_pct = var_dict.get(nome, {}).get('var_pct')
+        var_pct = var_dict.get(ticker, {}).get('var_pct')
         texto = f"{nome} {var_pct:+.2f}%" if var_pct is not None else nome
 
         fig.add_annotation(
-            xref="paper", x=1.01, xanchor="left",
+            xref="paper", x=1.005, xanchor="left",
             yref="y", y=ret.iloc[-1], yanchor="middle",
             text=texto, showarrow=False,
             bgcolor=cor, font=dict(color="white", size=8),
             borderpad=2, align="left",
         )
 
-    fig.update_layout(
-        template="plotly_dark", height=ALTURA_GRAFICO, margin=MARGEM_GRAFICO,
+    layout_args = dict(
+        template="plotly_dark",
+        height=ALTURA_GRAFICO,
+        margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
-        showlegend=False,
+        xaxis=dict(type='category', showticklabels=False),
+        showlegend=mostrar_legenda
     )
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+
+    if mostrar_legenda:
+        layout_args['legend'] = dict(
+            yanchor="top", y=0.99, xanchor="left", x=0.01,
+            bgcolor="rgba(0,0,0,0.4)", font=dict(size=8)
+        )
+
+    fig.update_layout(**layout_args)
     return fig
 
 # ----------------------------------------------------
-# SEÇÃO 1: MOEDAS & DXY (LINHA)
+# LINHA 1: MOEDAS E YIELDS
 # ----------------------------------------------------
-col_m1, col_m2 = st.columns([2.8, 1], gap="small")
+col_esquerda, col_direita = st.columns(2, gap="medium")
 
-with col_m1:
-    st.markdown("###### Moedas & DXY (% Variação - 1h / 10 dias) — via Twelve Data + Yahoo (DXY)")
-    st.plotly_chart(grafico_com_variacao(dados_linha_moedas, CORES_MOEDAS, dados_moedas_var), use_container_width=True)
+with col_esquerda:
+    st.markdown("###### Moedas & DXY (% Variação)")
+    c_g1, c_t1 = st.columns([3, 1], gap="small")
+    with c_g1:
+        st.plotly_chart(
+            grafico_com_variacao(MOEDAS, CORES_MOEDAS_EXATAS, dados_var, dados_linha_moedas, mostrar_legenda=True),
+            use_container_width=True
+        )
+    with c_t1:
+        st.markdown("<h6 style='text-align: center;'>Moedas</h6>", unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
 
-with col_m2:
-    st.markdown("###### Var. % Moedas / DXY")
-    for i in range(0, len(nomes_moedas_ordem), 2):
-        par = nomes_moedas_ordem[i:i + 2]
-        cols_par = st.columns(2, gap="small")
-        for j, nome in enumerate(par):
-            info = dados_moedas_var.get(nome)
-            with cols_par[j]:
-                if info:
-                    st.metric(nome, f"{info['preco']:.4f}", f"{info['var_pct']:+.2f}%")
-                else:
-                    st.metric(nome, "-")
+with col_direita:
+    st.markdown("###### US Treasury Yields (% Variação)")
+    c_g2, c_t2 = st.columns([3, 1], gap="small")
+    with c_g2:
+        st.plotly_chart(
+            grafico_com_variacao(YIELDS, CORES_YIELDS, dados_var, dados_linha_yields, mostrar_legenda=False),
+            use_container_width=True
+        )
+    with c_t2:
+        st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(YIELDS, dados_var), unsafe_allow_html=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# SEÇÃO 2: US TREASURY YIELDS (LINHA)
+# LINHA 2: ADRs BRASILEIRAS E COMMODITIES/RISCO
 # ----------------------------------------------------
-col_y1, col_y2 = st.columns([2.8, 1], gap="small")
+col_adr, col_macro = st.columns(2, gap="medium")
 
-with col_y1:
-    st.markdown("###### US Treasury Yields - 2Y, 5Y, 10Y, 30Y (% Variação - 1h / 10 dias) — via Yahoo")
-    st.plotly_chart(grafico_com_variacao(dados_linha_yields, CORES_YIELDS, dados_yields_var), use_container_width=True)
+with col_adr:
+    st.markdown("###### ADRs Brasileiras (Variação Diária %) — via Twelve Data")
 
-with col_y2:
-    st.markdown("###### Var. % Diária Yields")
-    nomes_yields_ordem = list(YIELDS.values())
-    for i in range(0, len(nomes_yields_ordem), 2):
-        par = nomes_yields_ordem[i:i + 2]
-        cols_par = st.columns(2, gap="small")
-        for j, nome in enumerate(par):
-            info = dados_yields_var.get(nome)
-            with cols_par[j]:
-                if info:
-                    st.metric(nome, f"{info['preco']:.3f}%", f"{info['var_pct']:+.2f}%")
-                else:
-                    st.metric(nome, "-")
+    tickers_adr = []
+    variacoes_adr = []
+    cores_adr = []
 
-st.markdown("<hr>", unsafe_allow_html=True)
+    for ticker in ADRS.keys():
+        if ticker in dados_var:
+            var = dados_var[ticker]['var_pct']
+            tickers_adr.append(ticker)
+            variacoes_adr.append(var)
+            cores_adr.append('#1b8a2e' if var >= 0 else '#ff3b30')
 
-# ----------------------------------------------------
-# SEÇÃO 3: ADRs BRASILEIRAS (GRÁFICO DE BARRAS + COTAÇÕES) — via Twelve Data
-# ----------------------------------------------------
-st.markdown("###### ADRs Brasileiras (Variação Diária) — via Twelve Data")
+    fig_adrs_bar = go.Figure(data=[
+        go.Bar(
+            x=tickers_adr,
+            y=variacoes_adr,
+            marker_color=cores_adr,
+            text=[f"{v:+.2f}%" for v in variacoes_adr],
+            textposition='outside',
+            textfont=dict(color='white', size=9)
+        )
+    ])
 
-tickers_adr = []
-variacoes_adr = []
-cores = []
-
-for ticker in ADRS_TD.keys():
-    if ticker in dados_adrs_var:
-        var = dados_adrs_var[ticker]['var_pct']
-        tickers_adr.append(ticker)
-        variacoes_adr.append(var)
-        cores.append('#26a69a' if var >= 0 else '#ef5350')
-
-fig_adrs_bar = go.Figure(data=[
-    go.Bar(
-        x=tickers_adr,
-        y=variacoes_adr,
-        marker_color=cores,
-        text=[f"{v:+.2f}%" for v in variacoes_adr],
-        textposition='outside',
-        textfont=dict(color='white', size=10)
+    fig_adrs_bar.update_layout(
+        template="plotly_dark",
+        height=170,
+        yaxis=dict(title=None, zeroline=True, zerolinecolor='#444', zerolinewidth=1),
+        xaxis=dict(title=None, tickfont=dict(size=9)),
+        margin=dict(l=5, r=5, t=10, b=5)
     )
-])
 
-fig_adrs_bar.update_layout(
-    template="plotly_dark",
-    height=220,
-    yaxis=dict(title=None, zeroline=True, zerolinecolor='white', zerolinewidth=1.5),
-    xaxis=dict(title=None),
-    margin=dict(l=10, r=10, t=15, b=10)
-)
-
-col_bar, col_vazia = st.columns([2.2, 1])
-with col_bar:
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
-adrs_lista = list(ADRS_TD.items())
-linha1 = adrs_lista[:5]
-linha2 = adrs_lista[5:]
+    metade_adr = len(ADRS) // 2
+    adrs_col1 = dict(list(ADRS.items())[:metade_adr])
+    adrs_col2 = dict(list(ADRS.items())[metade_adr:])
 
-cols1 = st.columns(5, gap="small")
-for idx, (ticker, nome) in enumerate(linha1):
-    with cols1[idx]:
-        info = dados_adrs_var.get(ticker)
-        if info:
-            st.metric(f"{ticker} ({nome})", f"US$ {info['preco']:.2f}", f"{info['var_pct']:+.2f}%")
-        else:
-            st.metric(f"{ticker} ({nome})", "-")
+    c_t_adr1, c_t_adr2 = st.columns(2, gap="small")
+    with c_t_adr1:
+        st.markdown(renderizar_tabela_lateral(adrs_col1, dados_var), unsafe_allow_html=True)
+    with c_t_adr2:
+        st.markdown(renderizar_tabela_lateral(adrs_col2, dados_var), unsafe_allow_html=True)
 
-cols2 = st.columns(5, gap="small")
-for idx, (ticker, nome) in enumerate(linha2):
-    with cols2[idx]:
-        info = dados_adrs_var.get(ticker)
-        if info:
-            st.metric(f"{ticker} ({nome})", f"US$ {info['preco']:.2f}", f"{info['var_pct']:+.2f}%")
-        else:
-            st.metric(f"{ticker} ({nome})", "-")
+with col_macro:
+    st.markdown("###### EWZ, VIX & Commodities (Variação Diária %)")
+
+    tickers_comm_x = []
+    variacoes_comm = []
+    cores_comm = []
+
+    for ticker, nome in COMMODITIES_RISCO.items():
+        if ticker in dados_var:
+            var = dados_var[ticker]['var_pct']
+            tickers_comm_x.append(nome)
+            variacoes_comm.append(var)
+            cores_comm.append('#1b8a2e' if var >= 0 else '#ff3b30')
+
+    fig_comm_bar = go.Figure(data=[
+        go.Bar(
+            x=tickers_comm_x,
+            y=variacoes_comm,
+            marker_color=cores_comm,
+            text=[f"{v:+.2f}%" for v in variacoes_comm],
+            textposition='outside',
+            textfont=dict(color='white', size=9)
+        )
+    ])
+
+    fig_comm_bar.update_layout(
+        template="plotly_dark",
+        height=170,
+        yaxis=dict(title=None, zeroline=True, zerolinecolor='#444', zerolinewidth=1),
+        xaxis=dict(title=None, tickfont=dict(size=9)),
+        margin=dict(l=5, r=5, t=10, b=5)
+    )
+
+    st.plotly_chart(fig_comm_bar, use_container_width=True)
+
+    metade_comm = len(COMMODITIES_RISCO) // 2
+    comm_col1 = dict(list(COMMODITIES_RISCO.items())[:metade_comm])
+    comm_col2 = dict(list(COMMODITIES_RISCO.items())[metade_comm:])
+
+    c_t_comm1, c_t_comm2 = st.columns(2, gap="small")
+    with c_t_comm1:
+        st.markdown(renderizar_tabela_lateral(comm_col1, dados_var), unsafe_allow_html=True)
+    with c_t_comm2:
+        st.markdown(renderizar_tabela_lateral(comm_col2, dados_var), unsafe_allow_html=True)
