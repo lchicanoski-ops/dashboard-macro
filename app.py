@@ -143,8 +143,14 @@ def td_time_series_batch(symbols: list, api_key: str, interval: str = "15min", o
             "outputsize": outputsize, "apikey": api_key,
         }, timeout=15)
         data = r.json()
+        if isinstance(data, dict) and data.get("status") == "error":
+            debug.append(f"time_series (HTTP {r.status_code}) - erro geral da chamada: {data.get('message', data)}")
+            return resultado, debug
         if len(symbols) == 1:
             data = {symbols[0]: data}
+        if not any(sym in data for sym in symbols):
+            debug.append(f"time_series: formato de resposta inesperado -> {data}")
+            return resultado, debug
         for sym in symbols:
             bloco = data.get(sym, {})
             if isinstance(bloco, dict) and bloco.get("status") == "error":
@@ -176,8 +182,14 @@ def td_quote_batch(symbols: list, api_key: str):
             "symbol": ",".join(symbols), "apikey": api_key,
         }, timeout=15)
         data = r.json()
+        if isinstance(data, dict) and data.get("status") == "error":
+            debug.append(f"quote (HTTP {r.status_code}) - erro geral da chamada: {data.get('message', data)}")
+            return resultado, debug
         if len(symbols) == 1:
             data = {symbols[0]: data}
+        if not any(sym in data for sym in symbols):
+            debug.append(f"quote: formato de resposta inesperado -> {data}")
+            return resultado, debug
         for sym in symbols:
             bloco = data.get(sym, {})
             if isinstance(bloco, dict) and bloco.get("status") == "error":
