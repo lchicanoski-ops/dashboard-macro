@@ -128,7 +128,7 @@ def obter_dados_diarios_lote(tickers):
             except Exception:
                 pass
             
-            # Puxa o histórico de 5 dias com prepost=True em candles de 5 minutos
+            # Puxa o histórico de 5 dias com prepost=True em candles de 15 minutos
             hist = tk.history(period="5d", interval="5m", prepost=True)
             
             if not hist.empty:
