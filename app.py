@@ -54,7 +54,6 @@ st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 # ------------------------------------------------------------------
 # DICIONÁRIOS DE ATIVOS
 # ------------------------------------------------------------------
-# DXY removido daqui para limpar o gráfico de moedas
 MOEDAS = {
     '6E=F': '6E1!',
     '6J=F': '6J1!',
@@ -88,7 +87,6 @@ CORES_DI = {
     'DI1F35.SA': '#9c27b0'
 }
 
-# DXY inserido como o primeiro item do bloco macro/commodities
 COMMODITIES_RISCO = {
     'DX=F': 'DXY',
     'EWZ': 'EWZ',
@@ -157,6 +155,7 @@ def obter_dados_diarios_lote(tickers):
             
     return dados_info
 
+# Garantindo todos os tickers na busca diária
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(DI_B3.keys()) + list(COMMODITIES_RISCO.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
 
@@ -319,10 +318,6 @@ with col_macro:
             tickers_comm_x.append(nome)
             variacoes_comm.append(var)
             cores_comm.append('#1b8a2e' if var >= 0 else '#ff3b30')
-        else:
-            tickers_comm_x.append(nome)
-            variacoes_comm.append(0.0)
-            cores_comm.append('#888888')
 
     fig_comm_bar = go.Figure(data=[
         go.Bar(
@@ -339,9 +334,10 @@ with col_macro:
     )
     st.plotly_chart(fig_comm_bar, use_container_width=True)
 
+    # Divisão da tabela abaixo do gráfico: DXY + EWZ na esquerda, VIX + Petróleo + Ouro na direita
     items_comm = list(COMMODITIES_RISCO.items())
     c_t_comm1, c_t_comm2 = st.columns(2, gap="small")
     with c_t_comm1:
-        st.markdown(renderizar_tabela_lateral(dict(items_comm[:3]), dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(items_comm[:2]), dados_var), unsafe_allow_html=True)
     with c_t_comm2:
-        st.markdown(renderizar_tabela_lateral(dict(items_comm[3:]), dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(items_comm[2:]), dados_var), unsafe_allow_html=True)
