@@ -52,22 +52,20 @@ st.markdown("""
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
 # ------------------------------------------------------------------
-# DICIONÁRIOS DE ATIVOS
+# DICIONÁRIOS DE ATIVOS (DXY REMOVIDO DE MOEDAS E ADICIONADO A COMMODITIES)
 # ------------------------------------------------------------------
 MOEDAS = {
     '6E=F': '6E1!',
     '6J=F': '6J1!',
     '6L=F': '6L1!',
-    '6M=F': '6M1!',
-    'DX=F': 'DXY'
+    '6M=F': '6M1!'
 }
 
 CORES_MOEDAS_EXATAS = {
     '6E=F': '#1e50bc',
     '6J=F': '#d4c92a',
     '6L=F': '#1b8a2e',
-    '6M=F': '#c87820',
-    'DX=F': '#dcdcdc'
+    '6M=F': '#c87820'
 }
 
 YIELDS = {
@@ -77,7 +75,6 @@ YIELDS = {
     '^FVX': 'US05Y'
 }
 
-# Tickers do DI no Yahoo Finance
 DI_B3 = {
     'DI1F29.SA': 'DI1 F29',
     'DI1F30.SA': 'DI1 F30',
@@ -90,7 +87,9 @@ CORES_DI = {
     'DI1F35.SA': '#9c27b0'
 }
 
+# DXY colocado em primeiro lugar no dicionário
 COMMODITIES_RISCO = {
+    'DX=F': 'DXY',
     'EWZ': 'EWZ',
     '^VIX': 'VIX',
     'CL=F': 'Petróleo',
@@ -116,7 +115,7 @@ ALTURA_GRAFICO = 200
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
-# CARREGAMENTO DE DADOS COM SUPORTE A PRÉ-MERCADO (PREPOST)
+# CARREGAMENTO DE DADOS
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados_linha(tickers):
@@ -233,7 +232,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
 col_esquerda, col_direita = st.columns(2, gap="medium")
 
 with col_esquerda:
-    st.markdown("###### Moedas & DXY (% Variação)")
+    st.markdown("###### Moedas Futures (% Variação)")
     c_g1, c_t1 = st.columns([3, 1], gap="small")
     with c_g1:
         st.plotly_chart(
@@ -272,7 +271,7 @@ with col_direita:
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# LINHA 2: ADRs BRASILEIRAS E COMMODITIES/RISCO
+# LINHA 2: ADRs BRASILEIRAS E MACRO/COMMODITIES/DXY
 # ----------------------------------------------------
 col_adr, col_macro = st.columns(2, gap="medium")
 
@@ -310,7 +309,7 @@ with col_adr:
         st.markdown(renderizar_tabela_lateral(dict(list(ADRS.items())[metade_adr:]), dados_var), unsafe_allow_html=True)
 
 with col_macro:
-    st.markdown("###### EWZ, VIX & Commodities (Variação Diária %)")
+    st.markdown("###### DXY, EWZ, VIX & Commodities (Variação Diária %)")
     tickers_comm_x, variacoes_comm, cores_comm = [], [], []
 
     for ticker, nome in COMMODITIES_RISCO.items():
@@ -335,9 +334,10 @@ with col_macro:
     )
     st.plotly_chart(fig_comm_bar, use_container_width=True)
 
-    metade_comm = len(COMMODITIES_RISCO.items()) // 2
+    # Divisão limpa da tabela lateral (3 itens em uma coluna, 2 na outra)
+    items_comm = list(COMMODITIES_RISCO.items())
     c_t_comm1, c_t_comm2 = st.columns(2, gap="small")
     with c_t_comm1:
-        st.markdown(renderizar_tabela_lateral(dict(list(COMMODITIES_RISCO.items())[:metade_comm]), dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(items_comm[:3]), dados_var), unsafe_allow_html=True)
     with c_t_comm2:
-        st.markdown(renderizar_tabela_lateral(dict(list(COMMODITIES_RISCO.items())[metade_comm:]), dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(items_comm[3:]), dados_var), unsafe_allow_html=True)
