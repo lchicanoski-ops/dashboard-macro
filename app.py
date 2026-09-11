@@ -3,6 +3,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+import requests
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
@@ -23,6 +24,10 @@ st.markdown("""
         h2, h3, h6 { font-size: 0.82rem !important; margin-bottom: 0.1rem !important; margin-top: 0.1rem !important; }
         hr { margin: 0.2rem 0 !important; border-color: #222 !important; }
         div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
+
+        /* Estilização ultra-compacta para as Tabs */
+        .stTabs [data-baseweb="tab-list"] { gap: 4px; }
+        .stTabs [data-baseweb="tab"] { padding: 2px 8px; font-size: 0.75rem; height: 24px; }
 
         .side-table {
             width: auto;
@@ -93,10 +98,44 @@ ADRS = {
     'NU': 'Nubank'
 }
 
+DI_B3 = {
+    'DI1F29': 'DI1 F29',
+    'DI1F30': 'DI1 F30',
+    'DI1F35': 'DI1 F35'
+}
+
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
+CORES_DI = {'DI1F29': '#ff9800', 'DI1F30': '#e91e63', 'DI1F35': '#9c27b0'}
 
 ALTURA_GRAFICO = 200
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
+
+# ------------------------------------------------------------------
+# CARREGAMENTO DE DADOS B3 (DI FUTURO)
+# ------------------------------------------------------------------
+@st.cache_data(ttl=60)
+def obter_dados_di_b3():
+    """Busca cotação e variação diária do DI1 direto de endpoint público"""
+    dados_di = {}
+    tickers = ["DI1F29", "DI1F30", "DI1F35"]
+    
+    for t in tickers:
+        try:
+            # Endpoint público de cotações B3/HG
+            url = f"https://api.hgbrasil.com/finance/stock_price?key=development&symbol={t}"
+            res = requests.get(url, timeout=3).json()
+            if 'results' in res and t in res['results']:
+                item = res['results'][t]
+                dados_di[t] = {
+                    'preco': item.get('price', 0),
+                    'var_pct': item.get('change_percent', 0.0)
+                }
+            else:
+                dados_di[t] = {'preco': 0, 'var_pct': 0.0}
+        except Exception:
+            dados_di[t] = {'preco': 0, 'var_pct': 0.0}
+            
+    return dados_di
 
 # ------------------------------------------------------------------
 # CARREGAMENTO DE DADOS COM SUPORTE A PRÉ-MERCADO (PREPOST)
@@ -119,7 +158,6 @@ def obter_dados_diarios_lote(tickers):
     for ticker in tickers:
         try:
             tk = yf.Ticker(ticker)
-            
             preco_atual = None
             try:
                 preco_atual = tk.fast_info['lastPrice']
@@ -127,23 +165,15 @@ def obter_dados_diarios_lote(tickers):
                 pass
             
             hist = tk.history(period="5d", interval="5m", prepost=True)
-            
             if not hist.empty:
                 if preco_atual is None or np.isnan(preco_atual):
                     preco_atual = hist['Close'].iloc[-1]
                 
                 fechamentos_diarios = hist['Close'].groupby(hist.index.date).last()
-                
-                if len(fechamentos_diarios) >= 2:
-                    fechamento_anterior = fechamentos_diarios.iloc[-2]
-                else:
-                    fechamento_anterior = hist['Close'].iloc[0]
+                fechamento_anterior = fechamentos_diarios.iloc[-2] if len(fechamentos_diarios) >= 2 else hist['Close'].iloc[0]
                 
                 var_pct = ((preco_atual / fechamento_anterior) - 1) * 100
-                dados_info[ticker] = {
-                    'preco': preco_atual,
-                    'var_pct': var_pct
-                }
+                dados_info[ticker] = {'preco': preco_atual, 'var_pct': var_pct}
         except Exception:
             pass
             
@@ -151,6 +181,10 @@ def obter_dados_diarios_lote(tickers):
 
 todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(COMMODITIES_RISCO.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
+
+# Merge dos dados do DI na tabela de variações
+dados_di_b3 = obter_dados_di_b3()
+dados_var.update(dados_di_b3)
 
 def renderizar_tabela_lateral(tickers_map, dados_dict):
     html = '<table class="side-table">'
@@ -169,7 +203,6 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
 # ------------------------------------------------------------------
 def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
-    
     cols_existentes = [t for t in tickers_nomes.keys() if t in dados_linha.columns]
     if not cols_existentes:
         return fig
@@ -189,12 +222,8 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         ret = ((s / s.iloc[0]) - 1) * 100
 
         fig.add_trace(go.Scatter(
-            x=datas_str, 
-            y=ret.values, 
-            mode='lines', 
-            name=nome,
-            line=dict(color=cor, width=1.8),
-            connectgaps=True
+            x=datas_str, y=ret.values, mode='lines', name=nome,
+            line=dict(color=cor, width=1.8), connectgaps=True
         ))
 
         var_pct = var_dict.get(ticker, {}).get('var_pct')
@@ -209,9 +238,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
         )
 
     layout_args = dict(
-        template="plotly_dark", 
-        height=ALTURA_GRAFICO, 
-        margin=MARGEM_GRAFICO,
+        template="plotly_dark", height=ALTURA_GRAFICO, margin=MARGEM_GRAFICO,
         yaxis=dict(title=None, zeroline=True),
         xaxis=dict(type='category', showticklabels=False),
         showlegend=mostrar_legenda
@@ -227,7 +254,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
     return fig
 
 # ----------------------------------------------------
-# LINHA 1: MOEDAS E YIELDS
+# LINHA 1: MOEDAS E YIELDS / DI FUTURO (TABS)
 # ----------------------------------------------------
 col_esquerda, col_direita = st.columns(2, gap="medium")
 
@@ -244,16 +271,43 @@ with col_esquerda:
         st.markdown(renderizar_tabela_lateral(MOEDAS, dados_var), unsafe_allow_html=True)
 
 with col_direita:
-    st.markdown("###### US Treasury Yields (% Variação)")
-    c_g2, c_t2 = st.columns([3, 1], gap="small")
-    with c_g2:
-        st.plotly_chart(
-            grafico_com_variacao(YIELDS, CORES_YIELDS, dados_var, mostrar_legenda=False), 
-            use_container_width=True
-        )
-    with c_t2:
-        st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
-        st.markdown(renderizar_tabela_lateral(YIELDS, dados_var), unsafe_allow_html=True)
+    tab_us, tab_di = st.tabs(["US Treasury Yields", "DI Futuro (B3)"])
+    
+    with tab_us:
+        c_g2, c_t2 = st.columns([3, 1], gap="small")
+        with c_g2:
+            st.plotly_chart(
+                grafico_com_variacao(YIELDS, CORES_YIELDS, dados_var, mostrar_legenda=False), 
+                use_container_width=True
+            )
+        with c_t2:
+            st.markdown("<h6 style='text-align: center;'>Yields</h6>", unsafe_allow_html=True)
+            st.markdown(renderizar_tabela_lateral(YIELDS, dados_var), unsafe_allow_html=True)
+            
+    with tab_di:
+        c_g3, c_t3 = st.columns([3, 1], gap="small")
+        with c_g3:
+            # Painel com barra indicativa da taxa dos DIs
+            fig_di = go.Figure()
+            dis_names = list(DI_B3.values())
+            dis_vars = [dados_var.get(k, {}).get('var_pct', 0.0) for k in DI_B3.keys()]
+            dis_cols = ['#26a69a' if v >= 0 else '#ef5350' for v in dis_vars]
+            
+            fig_di.add_trace(go.Bar(
+                x=dis_names, y=dis_vars, marker_color=dis_cols,
+                text=[f"{v:+.2f}%" for v in dis_vars], textposition='outside',
+                textfont=dict(color='white', size=9)
+            ))
+            fig_di.update_layout(
+                template="plotly_dark", height=ALTURA_GRAFICO, margin=MARGEM_GRAFICO,
+                yaxis=dict(title=None, zeroline=True, zerolinecolor='#444'),
+                xaxis=dict(title=None, tickfont=dict(size=9))
+            )
+            st.plotly_chart(fig_di, use_container_width=True)
+            
+        with c_t3:
+            st.markdown("<h6 style='text-align: center;'>Juros BR</h6>", unsafe_allow_html=True)
+            st.markdown(renderizar_tabela_lateral(DI_B3, dados_var), unsafe_allow_html=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -264,10 +318,7 @@ col_adr, col_macro = st.columns(2, gap="medium")
 
 with col_adr:
     st.markdown("###### ADRs Brasileiras (Variação Diária %)")
-    
-    tickers_adr = []
-    variacoes_adr = []
-    cores_adr = []
+    tickers_adr, variacoes_adr, cores_adr = [], [], []
 
     for ticker in ADRS.keys():
         if ticker in dados_var:
@@ -278,41 +329,29 @@ with col_adr:
 
     fig_adrs_bar = go.Figure(data=[
         go.Bar(
-            x=tickers_adr,
-            y=variacoes_adr,
-            marker_color=cores_adr,
-            text=[f"{v:+.2f}%" for v in variacoes_adr],
-            textposition='outside',
+            x=tickers_adr, y=variacoes_adr, marker_color=cores_adr,
+            text=[f"{v:+.2f}%" for v in variacoes_adr], textposition='outside',
             textfont=dict(color='white', size=9)
         )
     ])
-
     fig_adrs_bar.update_layout(
-        template="plotly_dark",
-        height=170,
+        template="plotly_dark", height=170,
         yaxis=dict(title=None, zeroline=True, zerolinecolor='#444', zerolinewidth=1),
         xaxis=dict(title=None, tickfont=dict(size=9)),
         margin=dict(l=5, r=5, t=10, b=5)
     )
-
     st.plotly_chart(fig_adrs_bar, use_container_width=True)
 
     metade_adr = len(ADRS) // 2
-    adrs_col1 = dict(list(ADRS.items())[:metade_adr])
-    adrs_col2 = dict(list(ADRS.items())[metade_adr:])
-
     c_t_adr1, c_t_adr2 = st.columns(2, gap="small")
     with c_t_adr1:
-        st.markdown(renderizar_tabela_lateral(adrs_col1, dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(list(ADRS.items())[:metade_adr]), dados_var), unsafe_allow_html=True)
     with c_t_adr2:
-        st.markdown(renderizar_tabela_lateral(adrs_col2, dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(list(ADRS.items())[metade_adr:]), dados_var), unsafe_allow_html=True)
 
 with col_macro:
     st.markdown("###### EWZ, VIX & Commodities (Variação Diária %)")
-    
-    tickers_comm_x = []
-    variacoes_comm = []
-    cores_comm = []
+    tickers_comm_x, variacoes_comm, cores_comm = [], [], []
 
     for ticker, nome in COMMODITIES_RISCO.items():
         if ticker in dados_var:
@@ -323,31 +362,22 @@ with col_macro:
 
     fig_comm_bar = go.Figure(data=[
         go.Bar(
-            x=tickers_comm_x,
-            y=variacoes_comm,
-            marker_color=cores_comm,
-            text=[f"{v:+.2f}%" for v in variacoes_comm],
-            textposition='outside',
+            x=tickers_comm_x, y=variacoes_comm, marker_color=cores_comm,
+            text=[f"{v:+.2f}%" for v in variacoes_comm], textposition='outside',
             textfont=dict(color='white', size=9)
         )
     ])
-
     fig_comm_bar.update_layout(
-        template="plotly_dark",
-        height=170,
+        template="plotly_dark", height=170,
         yaxis=dict(title=None, zeroline=True, zerolinecolor='#444', zerolinewidth=1),
         xaxis=dict(title=None, tickfont=dict(size=9)),
         margin=dict(l=5, r=5, t=10, b=5)
     )
-
     st.plotly_chart(fig_comm_bar, use_container_width=True)
 
     metade_comm = len(COMMODITIES_RISCO.items()) // 2
-    comm_col1 = dict(list(COMMODITIES_RISCO.items())[:metade_comm])
-    comm_col2 = dict(list(COMMODITIES_RISCO.items())[metade_comm:])
-
     c_t_comm1, c_t_comm2 = st.columns(2, gap="small")
     with c_t_comm1:
-        st.markdown(renderizar_tabela_lateral(comm_col1, dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(list(COMMODITIES_RISCO.items())[:metade_comm]), dados_var), unsafe_allow_html=True)
     with c_t_comm2:
-        st.markdown(renderizar_tabela_lateral(comm_col2, dados_var), unsafe_allow_html=True)
+        st.markdown(renderizar_tabela_lateral(dict(list(COMMODITIES_RISCO.items())[metade_comm:]), dados_var), unsafe_allow_html=True)
