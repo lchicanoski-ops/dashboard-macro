@@ -3,7 +3,6 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-import requests
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
@@ -78,6 +77,19 @@ YIELDS = {
     '^FVX': 'US05Y'
 }
 
+# Tickers do DI no Yahoo Finance
+DI_B3 = {
+    'DI1F29.SA': 'DI1 F29',
+    'DI1F30.SA': 'DI1 F30',
+    'DI1F35.SA': 'DI1 F35'
+}
+
+CORES_DI = {
+    'DI1F29.SA': '#ff9800',
+    'DI1F30.SA': '#e91e63',
+    'DI1F35.SA': '#9c27b0'
+}
+
 COMMODITIES_RISCO = {
     'EWZ': 'EWZ',
     '^VIX': 'VIX',
@@ -98,44 +110,10 @@ ADRS = {
     'NU': 'Nubank'
 }
 
-DI_B3 = {
-    'DI1F29': 'DI1 F29',
-    'DI1F30': 'DI1 F30',
-    'DI1F35': 'DI1 F35'
-}
-
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
-CORES_DI = {'DI1F29': '#ff9800', 'DI1F30': '#e91e63', 'DI1F35': '#9c27b0'}
 
 ALTURA_GRAFICO = 200
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
-
-# ------------------------------------------------------------------
-# CARREGAMENTO DE DADOS B3 (DI FUTURO)
-# ------------------------------------------------------------------
-@st.cache_data(ttl=60)
-def obter_dados_di_b3():
-    """Busca cotação e variação diária do DI1 direto de endpoint público"""
-    dados_di = {}
-    tickers = ["DI1F29", "DI1F30", "DI1F35"]
-    
-    for t in tickers:
-        try:
-            # Endpoint público de cotações B3/HG
-            url = f"https://api.hgbrasil.com/finance/stock_price?key=development&symbol={t}"
-            res = requests.get(url, timeout=3).json()
-            if 'results' in res and t in res['results']:
-                item = res['results'][t]
-                dados_di[t] = {
-                    'preco': item.get('price', 0),
-                    'var_pct': item.get('change_percent', 0.0)
-                }
-            else:
-                dados_di[t] = {'preco': 0, 'var_pct': 0.0}
-        except Exception:
-            dados_di[t] = {'preco': 0, 'var_pct': 0.0}
-            
-    return dados_di
 
 # ------------------------------------------------------------------
 # CARREGAMENTO DE DADOS COM SUPORTE A PRÉ-MERCADO (PREPOST)
@@ -149,7 +127,7 @@ def carregar_dados_linha(tickers):
     df = df.ffill().bfill()
     return df
 
-todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys())
+todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(DI_B3.keys())
 dados_linha = carregar_dados_linha(todos_linha)
 
 @st.cache_data(ttl=60)
@@ -179,12 +157,8 @@ def obter_dados_diarios_lote(tickers):
             
     return dados_info
 
-todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(COMMODITIES_RISCO.keys()) + list(ADRS.keys())
+todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(DI_B3.keys()) + list(COMMODITIES_RISCO.keys()) + list(ADRS.keys())
 dados_var = obter_dados_diarios_lote(todos_diarios)
-
-# Merge dos dados do DI na tabela de variações
-dados_di_b3 = obter_dados_di_b3()
-dados_var.update(dados_di_b3)
 
 def renderizar_tabela_lateral(tickers_map, dados_dict):
     html = '<table class="side-table">'
@@ -287,24 +261,10 @@ with col_direita:
     with tab_di:
         c_g3, c_t3 = st.columns([3, 1], gap="small")
         with c_g3:
-            # Painel com barra indicativa da taxa dos DIs
-            fig_di = go.Figure()
-            dis_names = list(DI_B3.values())
-            dis_vars = [dados_var.get(k, {}).get('var_pct', 0.0) for k in DI_B3.keys()]
-            dis_cols = ['#26a69a' if v >= 0 else '#ef5350' for v in dis_vars]
-            
-            fig_di.add_trace(go.Bar(
-                x=dis_names, y=dis_vars, marker_color=dis_cols,
-                text=[f"{v:+.2f}%" for v in dis_vars], textposition='outside',
-                textfont=dict(color='white', size=9)
-            ))
-            fig_di.update_layout(
-                template="plotly_dark", height=ALTURA_GRAFICO, margin=MARGEM_GRAFICO,
-                yaxis=dict(title=None, zeroline=True, zerolinecolor='#444'),
-                xaxis=dict(title=None, tickfont=dict(size=9))
+            st.plotly_chart(
+                grafico_com_variacao(DI_B3, CORES_DI, dados_var, mostrar_legenda=False), 
+                use_container_width=True
             )
-            st.plotly_chart(fig_di, use_container_width=True)
-            
         with c_t3:
             st.markdown("<h6 style='text-align: center;'>Juros BR</h6>", unsafe_allow_html=True)
             st.markdown(renderizar_tabela_lateral(DI_B3, dados_var), unsafe_allow_html=True)
