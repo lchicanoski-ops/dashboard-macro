@@ -62,6 +62,7 @@ if not TD_API_KEY:
     st.warning("Cole sua API Key da Twelve Data na barra lateral (ou configure em Secrets) para carregar Moedas e ADRs.")
 
 TD_BASE = "https://api.twelvedata.com"
+TD_DEBUG_LOG = []
 
 # ------------------------------------------------------------------
 # DICIONÁRIOS DE ATIVOS
@@ -124,12 +125,18 @@ MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
 # TWELVE DATA - chamadas em lote (economiza o limite de 8/min do free)
+# Retornam tambem uma lista de mensagens de erro/diagnostico, porque
+# cache_data guarda o retorno inteiro (inclusive os erros) entre reruns.
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def td_time_series_batch(symbols: list, api_key: str, interval: str = "15min", outputsize: int = 480):
     resultado = {}
-    if not api_key or not symbols:
-        return resultado
+    debug = []
+    if not api_key:
+        debug.append("time_series: API key vazia.")
+        return resultado, debug
+    if not symbols:
+        return resultado, debug
     try:
         r = requests.get(f"{TD_BASE}/time_series", params={
             "symbol": ",".join(symbols), "interval": interval,
@@ -140,22 +147,30 @@ def td_time_series_batch(symbols: list, api_key: str, interval: str = "15min", o
             data = {symbols[0]: data}
         for sym in symbols:
             bloco = data.get(sym, {})
-            valores = bloco.get("values")
+            if isinstance(bloco, dict) and bloco.get("status") == "error":
+                debug.append(f"time_series [{sym}]: {bloco.get('message', bloco)}")
+                continue
+            valores = bloco.get("values") if isinstance(bloco, dict) else None
             if not valores:
+                debug.append(f"time_series [{sym}]: resposta sem 'values' -> {bloco}")
                 continue
             df = pd.DataFrame(valores)
             df["datetime"] = pd.to_datetime(df["datetime"])
             df = df.sort_values("datetime").set_index("datetime")
             resultado[sym] = df["close"].astype(float)
-    except Exception:
-        pass
-    return resultado
+    except Exception as e:
+        debug.append(f"time_series: erro de conexão/parse -> {e}")
+    return resultado, debug
 
 @st.cache_data(ttl=60)
 def td_quote_batch(symbols: list, api_key: str):
     resultado = {}
-    if not api_key or not symbols:
-        return resultado
+    debug = []
+    if not api_key:
+        debug.append("quote: API key vazia.")
+        return resultado, debug
+    if not symbols:
+        return resultado, debug
     try:
         r = requests.get(f"{TD_BASE}/quote", params={
             "symbol": ",".join(symbols), "apikey": api_key,
@@ -165,15 +180,19 @@ def td_quote_batch(symbols: list, api_key: str):
             data = {symbols[0]: data}
         for sym in symbols:
             bloco = data.get(sym, {})
-            if "close" not in bloco:
+            if isinstance(bloco, dict) and bloco.get("status") == "error":
+                debug.append(f"quote [{sym}]: {bloco.get('message', bloco)}")
+                continue
+            if not isinstance(bloco, dict) or "close" not in bloco:
+                debug.append(f"quote [{sym}]: resposta sem 'close' -> {bloco}")
                 continue
             resultado[sym] = {
                 "preco": float(bloco["close"]),
                 "var_pct": float(bloco.get("percent_change", 0)),
             }
-    except Exception:
-        pass
-    return resultado
+    except Exception as e:
+        debug.append(f"quote: erro de conexão/parse -> {e}")
+    return resultado, debug
 
 # ------------------------------------------------------------------
 # CARREGAMENTO DE DADOS - YAHOO (Yields, Commodities/Risco, DXY)
@@ -231,7 +250,8 @@ def obter_dados_diarios_lote(tickers):
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def montar_dados_linha_moedas(td_symbols: list, api_key: str, dxy_ticker: str):
-    series_dict = td_time_series_batch(td_symbols, api_key, interval="15min", outputsize=480)
+    series_dict, debug_ts = td_time_series_batch(td_symbols, api_key, interval="15min", outputsize=480)
+    TD_DEBUG_LOG.extend(debug_ts)
 
     dxy_df = yf.download(dxy_ticker, period="5d", interval="15m", prepost=True, progress=False)
     if not dxy_df.empty:
@@ -257,9 +277,18 @@ dados_linha_yields = carregar_dados_linha(list(YIELDS.keys()))
 
 dados_var_yahoo = obter_dados_diarios_lote(list(YIELDS.keys()) + list(COMMODITIES_RISCO.keys()) + [DXY_TICKER])
 dados_var_td = {}
-dados_var_td.update(td_quote_batch(list(MOEDAS_TD.keys()), TD_API_KEY))
-dados_var_td.update(td_quote_batch(list(ADRS.keys()), TD_API_KEY))
+_moedas_var, _debug_moedas_var = td_quote_batch(list(MOEDAS_TD.keys()), TD_API_KEY)
+_adrs_var, _debug_adrs_var = td_quote_batch(list(ADRS.keys()), TD_API_KEY)
+dados_var_td.update(_moedas_var)
+dados_var_td.update(_adrs_var)
+TD_DEBUG_LOG.extend(_debug_moedas_var)
+TD_DEBUG_LOG.extend(_debug_adrs_var)
 dados_var = {**dados_var_yahoo, **dados_var_td}
+
+if TD_DEBUG_LOG:
+    with st.expander("⚠️ Diagnóstico Twelve Data (clique pra ver os erros)", expanded=True):
+        for msg in TD_DEBUG_LOG:
+            st.code(msg, language=None)
 
 def renderizar_tabela_lateral(tickers_map, dados_dict):
     html = '<table class="side-table">'
