@@ -1,7 +1,7 @@
 streamlit
 yfinance
+plotly
 pandas
 numpy
 streamlit-autorefresh
-websocket-client
-tvdatafeed-nightly
+git+https://github.com/rongardF/tvdatafeed.git
