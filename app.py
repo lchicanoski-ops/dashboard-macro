@@ -1,8 +1,8 @@
 import streamlit as st
-import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from tvdatafeed import TvDatafeed, Interval
 
 st.set_page_config(page_title="Cenário Macro", layout="wide")
 
@@ -11,6 +11,13 @@ try:
     st_autorefresh(interval=60000, key="datarefresh")
 except ImportError:
     pass
+
+# Inicializa conexão pública com o TradingView
+@st.cache_resource
+def iniciar_tv():
+    return TvDatafeed()
+
+tv = iniciar_tv()
 
 # ------------------------------------------------------------------
 # CSS - Design Ultradenso
@@ -24,7 +31,6 @@ st.markdown("""
         hr { margin: 0.2rem 0 !important; border-color: #222 !important; }
         div[data-testid="stVerticalBlock"] > div { gap: 0.1rem; }
 
-        /* Estilização ultra-compacta para as Tabs */
         .stTabs [data-baseweb="tab-list"] { gap: 4px; }
         .stTabs [data-baseweb="tab"] { padding: 2px 8px; font-size: 0.75rem; height: 24px; }
 
@@ -34,14 +40,8 @@ st.markdown("""
             font-size: 0.8rem;
             margin: 0 auto;
         }
-        .side-table tr {
-            border-bottom: 1px solid #1e2330;
-        }
-        .side-table td {
-            padding: 3px 6px;
-            font-weight: 600;
-            white-space: nowrap;
-        }
+        .side-table tr { border-bottom: 1px solid #1e2330; }
+        .side-table td { padding: 3px 6px; font-weight: 600; white-space: nowrap; }
         .symbol-col { text-align: left; color: #e0e0e0; }
         .var-col { text-align: left; padding-left: 12px !important; }
         .positive { color: #26a69a; }
@@ -52,119 +52,119 @@ st.markdown("""
 st.title("CENÁRIO MACRO - PAINEL DE CORRELAÇÃO")
 
 # ------------------------------------------------------------------
-# DICIONÁRIOS DE ATIVOS
+# DICIONÁRIOS REESTRUTURADOS COM BOLSA (EXCHANGE) DO TRADINGVIEW
+# Estrutura: 'CHAVE_INTERNA': ('TICKER_TV', 'NOME_EXIBICAO', 'EXCHANGE_TV')
 # ------------------------------------------------------------------
-# DXY removido daqui para limpar o gráfico de moedas
 MOEDAS = {
-    '6E=F': '6E1!',
-    '6J=F': '6J1!',
-    '6L=F': '6L1!',
-    '6M=F': '6M1!'
+    '6E': ('6E1!', '6E1!', 'CME'),
+    '6J': ('6J1!', '6J1!', 'CME'),
+    '6L': ('6L1!', '6L1!', 'CME'),
+    '6M': ('6M1!', '6M1!', 'CME')
 }
 
 CORES_MOEDAS_EXATAS = {
-    '6E=F': '#1e50bc',
-    '6J=F': '#d4c92a',
-    '6L=F': '#1b8a2e',
-    '6M=F': '#c87820'
+    '6E': '#1e50bc',
+    '6J': '#d4c92a',
+    '6L': '#1b8a2e',
+    '6M': '#c87820'
 }
 
 YIELDS = {
-    '^TYX': 'US30Y',
-    '^ZT=F': 'US2Y',
-    '^TNX': 'US10Y',
-    '^FVX': 'US05Y'
+    'US30Y': ('US30Y', 'US30Y', 'TVC'),
+    'US02Y': ('US02Y', 'US2Y', 'TVC'),
+    'US10Y': ('US10Y', 'US10Y', 'TVC'),
+    'US05Y': ('US05Y', 'US05Y', 'TVC')
 }
 
 DI_B3 = {
-    'DI1F29.SA': 'DI1 F29',
-    'DI1F30.SA': 'DI1 F30',
-    'DI1F35.SA': 'DI1 F35'
+    'DI1F2029': ('DI1F2029', 'DI1 F29', 'BMF'),
+    'DI1F2030': ('DI1F2030', 'DI1 F30', 'BMF'),
+    'DI1F2035': ('DI1F2035', 'DI1 F35', 'BMF')
 }
 
 CORES_DI = {
-    'DI1F29.SA': '#ff9800',
-    'DI1F30.SA': '#e91e63',
-    'DI1F35.SA': '#9c27b0'
+    'DI1F2029': '#ff9800',
+    'DI1F2030': '#e91e63',
+    'DI1F2035': '#9c27b0'
 }
 
-# DXY inserido como o primeiro item do bloco macro/commodities
 COMMODITIES_RISCO = {
-    'DX=F': 'DXY',
-    'EWZ': 'EWZ',
-    '^VIX': 'VIX',
-    'CL=F': 'Petróleo',
-    'GC=F': 'Ouro'
+    'DXY': ('DXY', 'DXY', 'ICE'),
+    'EWZ': ('EWZ', 'EWZ', 'NYSE'),
+    'VIX': ('VIX', 'VIX', 'CBOE'),
+    'CL': ('CL1!', 'Petróleo', 'NYMEX'),
+    'GC': ('GC1!', 'Ouro', 'COMEX')
 }
 
 ADRS = {
-    'VALE': 'Vale',
-    'PBR': 'Petrobras',
-    'ITUB': 'Itaú',
-    'BBD': 'Bradesco',
-    'ABEV': 'Ambev',
-    'GGB': 'Gerdau',
-    'CSAN': 'Cosan',
-    'BAK': 'Braskem',
-    'XP': 'XP Inc',
-    'NU': 'Nubank'
+    'VALE': ('VALE', 'Vale', 'NYSE'),
+    'PBR': ('PBR', 'Petrobras', 'NYSE'),
+    'ITUB': ('ITUB', 'Itaú', 'NYSE'),
+    'BBD': ('BBD', 'Bradesco', 'NYSE'),
+    'ABEV': ('ABEV', 'Ambev', 'NYSE'),
+    'GGB': ('GGB', 'Gerdau', 'NYSE'),
+    'CSAN': ('CSAN', 'Cosan', 'NYSE'),
+    'BAK': ('BAK', 'Braskem', 'NYSE'),
+    'XP': ('XP', 'XP Inc', 'NASDAQ'),
+    'NU': ('NU', 'Nubank', 'NYSE')
 }
 
 CORES_YIELDS = ['#ef5350', '#26a69a', '#4fc3f7', '#ab47bc']
-
 ALTURA_GRAFICO = 200
 MARGEM_GRAFICO = dict(l=5, r=60, t=15, b=5)
 
 # ------------------------------------------------------------------
-# CARREGAMENTO DE DADOS COM SUPORTE A PRÉ-MERCADO (PREPOST)
+# CARREGAMENTO DE DADOS VIA TRADINGVIEW API
 # ------------------------------------------------------------------
 @st.cache_data(ttl=60)
-def carregar_dados_linha(tickers):
-    df = yf.download(tickers, period="5d", interval="15m", prepost=True, progress=False)['Close']
-    if isinstance(df, pd.DataFrame) and df.index.tz is not None:
-        df.index = df.index.tz_convert('UTC')
-    df = df.dropna(how='all')
-    df = df.ffill().bfill()
-    return df
+def carregar_dados_linha_tv(ativos_dict):
+    series_list = {}
+    for chave, (symbol, _, exchange) in ativos_dict.items():
+        try:
+            df_hist = tv.get_hist(symbol=symbol, exchange=exchange, interval=Interval.in_15_minute, n_bars=300)
+            if df_hist is not None and not df_hist.empty:
+                series_list[chave] = df_hist['close']
+        except Exception:
+            pass
+            
+    if not series_list:
+        return pd.DataFrame()
+        
+    df_final = pd.DataFrame(series_list)
+    df_final = df_final.ffill().bfill()
+    return df_final
 
-todos_linha = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(DI_B3.keys())
-dados_linha = carregar_dados_linha(todos_linha)
+todos_linha_map = {**MOEDAS, **YIELDS, **DI_B3}
+dados_linha = carregar_dados_linha_tv(todos_linha_map)
 
 @st.cache_data(ttl=60)
-def obter_dados_diarios_lote(tickers):
+def obter_dados_diarios_tv(ativos_dict):
     dados_info = {}
-    for ticker in tickers:
+    for chave, (symbol, _, exchange) in ativos_dict.items():
         try:
-            tk = yf.Ticker(ticker)
-            preco_atual = None
-            try:
-                preco_atual = tk.fast_info['lastPrice']
-            except Exception:
-                pass
-            
-            hist = tk.history(period="5d", interval="5m", prepost=True)
-            if not hist.empty:
-                if preco_atual is None or np.isnan(preco_atual):
-                    preco_atual = hist['Close'].iloc[-1]
+            df_hist = tv.get_hist(symbol=symbol, exchange=exchange, interval=Interval.in_5_minute, n_bars=200)
+            if df_hist is not None and not df_hist.empty:
+                preco_atual = df_hist['close'].iloc[-1]
                 
-                fechamentos_diarios = hist['Close'].groupby(hist.index.date).last()
-                fechamento_anterior = fechamentos_diarios.iloc[-2] if len(fechamentos_diarios) >= 2 else hist['Close'].iloc[0]
+                # Agrupa os fechamentos por data para capturar o fechamento do dia anterior
+                fechamentos_diarios = df_hist['close'].groupby(df_hist.index.date).last()
+                fechamento_anterior = fechamentos_diarios.iloc[-2] if len(fechamentos_diarios) >= 2 else df_hist['close'].iloc[0]
                 
                 var_pct = ((preco_atual / fechamento_anterior) - 1) * 100
-                dados_info[ticker] = {'preco': preco_atual, 'var_pct': var_pct}
+                dados_info[chave] = {'preco': preco_atual, 'var_pct': var_pct}
         except Exception:
             pass
             
     return dados_info
 
-todos_diarios = list(MOEDAS.keys()) + list(YIELDS.keys()) + list(DI_B3.keys()) + list(COMMODITIES_RISCO.keys()) + list(ADRS.keys())
-dados_var = obter_dados_diarios_lote(todos_diarios)
+todos_diarios_map = {**MOEDAS, **YIELDS, **DI_B3, **COMMODITIES_RISCO, **ADRS}
+dados_var = obter_dados_diarios_tv(todos_diarios_map)
 
-def renderizar_tabela_lateral(tickers_map, dados_dict):
+def renderizar_tabela_lateral(ativos_dict, dados_dict):
     html = '<table class="side-table">'
-    for ticker, nome in tickers_map.items():
-        if ticker in dados_dict:
-            info = dados_dict[ticker]
+    for chave, (_, nome, _) in ativos_dict.items():
+        if chave in dados_dict:
+            info = dados_dict[chave]
             var = info['var_pct']
             cor_classe = "positive" if var >= 0 else "negative"
             var_fmt = f"{var:+.2f}%"
@@ -175,24 +175,24 @@ def renderizar_tabela_lateral(tickers_map, dados_dict):
 # ------------------------------------------------------------------
 # CONSTRUÇÃO DOS GRÁFICOS DE LINHA
 # ------------------------------------------------------------------
-def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
+def grafico_com_variacao(ativos_dict: dict, cores, var_dict: dict, mostrar_legenda: bool = False):
     fig = go.Figure()
-    cols_existentes = [t for t in tickers_nomes.keys() if t in dados_linha.columns]
+    cols_existentes = [k for k in ativos_dict.keys() if k in dados_linha.columns]
     if not cols_existentes:
         return fig
         
     df_filtrado = dados_linha[cols_existentes].dropna(how='all')
     datas_str = df_filtrado.index.strftime('%d/%m %H:%M')
 
-    for i, (ticker, nome) in enumerate(tickers_nomes.items()):
-        if ticker not in df_filtrado.columns:
+    for i, (chave, (_, nome, _)) in enumerate(ativos_dict.items()):
+        if chave not in df_filtrado.columns:
             continue
             
-        s = df_filtrado[ticker]
+        s = df_filtrado[chave]
         if s.empty or s.iloc[0] == 0:
             continue
 
-        cor = cores.get(ticker, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
+        cor = cores.get(chave, '#FFFFFF') if isinstance(cores, dict) else cores[i % len(cores)]
         ret = ((s / s.iloc[0]) - 1) * 100
 
         fig.add_trace(go.Scatter(
@@ -200,7 +200,7 @@ def grafico_com_variacao(tickers_nomes: dict, cores, var_dict: dict, mostrar_leg
             line=dict(color=cor, width=1.8), connectgaps=True
         ))
 
-        var_pct = var_dict.get(ticker, {}).get('var_pct')
+        var_pct = var_dict.get(chave, {}).get('var_pct')
         texto = f"{nome} {var_pct:+.2f}%" if var_pct is not None else nome
 
         fig.add_annotation(
@@ -280,10 +280,10 @@ with col_adr:
     st.markdown("###### ADRs Brasileiras (Variação Diária %)")
     tickers_adr, variacoes_adr, cores_adr = [], [], []
 
-    for ticker in ADRS.keys():
-        if ticker in dados_var:
-            var = dados_var[ticker]['var_pct']
-            tickers_adr.append(ticker)
+    for chave, (_, nome, _) in ADRS.items():
+        if chave in dados_var:
+            var = dados_var[chave]['var_pct']
+            tickers_adr.append(nome)
             variacoes_adr.append(var)
             cores_adr.append('#1b8a2e' if var >= 0 else '#ff3b30')
 
@@ -313,9 +313,9 @@ with col_macro:
     st.markdown("###### DXY, EWZ, VIX & Commodities (Variação Diária %)")
     tickers_comm_x, variacoes_comm, cores_comm = [], [], []
 
-    for ticker, nome in COMMODITIES_RISCO.items():
-        if ticker in dados_var:
-            var = dados_var[ticker]['var_pct']
+    for chave, (_, nome, _) in COMMODITIES_RISCO.items():
+        if chave in dados_var:
+            var = dados_var[chave]['var_pct']
             tickers_comm_x.append(nome)
             variacoes_comm.append(var)
             cores_comm.append('#1b8a2e' if var >= 0 else '#ff3b30')
