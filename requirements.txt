@@ -4,4 +4,4 @@ pandas
 numpy
 streamlit-autorefresh
 websocket-client
-git+https://github.com/rongardF/tvdatafeed.git
+tvdatafeed-nightly
