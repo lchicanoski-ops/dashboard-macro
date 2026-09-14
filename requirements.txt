@@ -3,5 +3,3 @@ yfinance
 plotly
 pandas
 numpy
-streamlit-autorefresh
-git+https://github.com/rongardF/tvdatafeed.git
